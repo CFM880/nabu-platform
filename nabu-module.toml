@@ -1,0 +1,12 @@
+schema = 1
+
+[module]
+name        = "nabu-platform"
+description = "SM8150 platform device tree base and nabu device tree"
+requires    = []
+
+[provides]
+overlay = "kernel-overlay"
+
+# Device tree and platform only; the nabu DTS compiles from the kernel tree, so
+# this module ships no .ko.
