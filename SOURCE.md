@@ -3,7 +3,8 @@
 ## Kernel
 
 - Baseline range: `b9d5d463c216763cec719c04536ea9e14512cad4` (Linux 6.14.11)
-  → `5181e1358ddd6ea8028e841d928942373e6aebc8` (NABU baseline)
+  → `5181e1358ddd6ea8028e841d928942373e6aebc8` (NABU baseline). The module overlay is
+  applied on top of the **clean upstream base** `b9d5d463` (Linux 6.14.11) by nabu-main
 - Tree: `https://gitlab.postmarketos.org/soc/qualcomm-sm8150/linux.git`
 - `nabu-platform` carries only the Xiaomi Pad 5 (nabu) changes of that range; the
   non-nabu devices (Xiaomi Mi 9 cepheus, OnePlus 7/Pro/T) are dropped.
