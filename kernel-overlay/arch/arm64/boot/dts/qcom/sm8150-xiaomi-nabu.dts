@@ -803,12 +803,8 @@
 	firmware-name = "qcom/sm8150/xiaomi/nabu/cdsp.mbn";
 };
 
-/*
- * nabu is Wi-Fi only: the SoC modem block has no RF here, so booting the MPSS
- * firmware just burns power.  Leave it disabled.
- */
 &remoteproc_mpss {
-	status = "disabled";
+	status = "okay";
 	firmware-name = "qcom/sm8150/xiaomi/nabu/modem.mbn";
 };
 
