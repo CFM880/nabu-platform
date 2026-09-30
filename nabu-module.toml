@@ -7,6 +7,10 @@ requires    = []
 
 [provides]
 overlay = "kernel-overlay"
+rules   = ["config/99-nabu-serial-wakeup.rules"]
 
 # Device tree and platform only; the nabu DTS compiles from the kernel tree, so
 # this module ships no .ko.
+
+[install]
+"rules/99-nabu-serial-wakeup.rules" = "/etc/udev/rules.d/99-nabu-serial-wakeup.rules"

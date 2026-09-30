@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# The SM8150 GENI debug UART (c8c000.serial) registers a wakeup IRQ, but the
+# port is unused on nabu and its RX line is not connected.  The wakeup fires
+# spuriously and aborts s2idle after about a second, so system suspend never
+# holds and the device keeps draining at full idle power.  Disable it.
+ACTION=="add", SUBSYSTEM=="platform", KERNEL=="c8c000.serial", ATTR{power/wakeup}="disabled"
