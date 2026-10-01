@@ -614,6 +614,7 @@
 		vddio-supply = <&vreg_l14a_1p8>;
 		reset-gpios = <&tlmm 6 GPIO_ACTIVE_LOW>;
 		backlight = <&backlight>;
+		rotation = <90>;
 
 		ports {
 			#address-cells = <1>;
@@ -872,16 +873,20 @@
 
 &spi18 {
 	status = "okay";
+	/delete-property/ reg-names;
+	/delete-property/ spi-max-frequency;
 
 	touchscreen@0 {
-		compatible = "novatek,NVT-ts-spi";
+		compatible = "novatek,nt36523-spi";
 		reg = <0>;
 
 		spi-max-frequency = <9600000>;
-		novatek,irq-gpio = <&tlmm 39 0x2001>;
+		irq-gpios = <&tlmm 39 GPIO_ACTIVE_LOW>;
 
 		novatek,pen-support;
 		novatek,wgp-stylus;
+		wakeup-source;
+		novatek,double-tap-to-wake;
 
 		/* 523 */
 		novatek,swrst-n8-addr = <0x03F0FE>;
@@ -957,14 +962,11 @@
 	};
 
 	bl_en_state: bl-default-state {
-		bl-en {
-			pins = "gpio27";
-			function = "gpio";
-
-			drive-strength = <16>;
-			output-high;
-			bias-disable;
-		};
+		pins = "gpio27";
+		function = "gpio";
+		drive-strength = <16>;
+		output-high;
+		bias-disable;
 	};
 
 	keyboard_active: keyboard-active-state {
