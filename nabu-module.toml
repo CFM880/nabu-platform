@@ -10,7 +10,7 @@ overlay = "kernel-overlay"
 rules   = ["config/99-nabu-serial-wakeup.rules"]
 
 # Device tree and platform only; the nabu DTS compiles from the kernel tree, so
-# this module ships no .ko.
+# this module ships no .ko.  The USB CDC-ACM serial console lives in nabu-serial.
 
 [install]
 "rules/99-nabu-serial-wakeup.rules" = "/etc/udev/rules.d/99-nabu-serial-wakeup.rules"
