@@ -4228,7 +4228,15 @@
 			      <0x0 0x0c40a000 0x0 0x0026000>;
 			reg-names = "core", "chnls", "obsrvr", "intr", "cnfg";
 			interrupt-names = "periph_irq";
-			interrupts = <GIC_SPI 481 IRQ_TYPE_LEVEL_HIGH>;
+			/*
+			 * The PMIC interrupts (power key, resin, ...) can only wake
+			 * the SoC from s2idle through the PDC, and the power key is
+			 * the only way to wake this tablet.  Route the SPMI arbiter's
+			 * summary interrupt through PDC pin 1 instead of straight to
+			 * the GIC, as sm8250 does; the PDC range <0 480 94> already
+			 * maps pin 1 to GIC 481.
+			 */
+			interrupts-extended = <&pdc 1 IRQ_TYPE_LEVEL_HIGH>;
 			qcom,ee = <0>;
 			qcom,channel = <0>;
 			#address-cells = <2>;
