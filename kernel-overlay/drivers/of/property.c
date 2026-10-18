@@ -1452,7 +1452,17 @@ static struct device_node *parse_remote_endpoint(struct device_node *np,
 	if (index > 0 || strcmp(prop_name, "remote-endpoint"))
 		return NULL;
 
-	return of_graph_get_remote_port(np);
+	/*
+	 * Nabu: keep the upstream supplier here.  The port had changed this to
+	 * of_graph_get_remote_port(), which makes fw_devlink point the
+	 * remote-endpoint link at the *port* node instead of the endpoint's
+	 * parent device.  That silently rewrites the device-link graph (and
+	 * therefore the suspend order) for every graph-based driver on the
+	 * board, while fw_devlink=permissive only stops it from failing probe.
+	 * A wrong suspend order is exactly the kind of thing that shows up as an
+	 * intermittent hang in the device-suspend phase.
+	 */
+	return of_graph_get_remote_port_parent(np);
 }
 
 static const struct supplier_bindings of_supplier_bindings[] = {
