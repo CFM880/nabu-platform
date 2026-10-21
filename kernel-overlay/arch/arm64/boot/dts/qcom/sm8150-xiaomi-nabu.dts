@@ -103,12 +103,20 @@
 			no-map;
 		};
 
+		/*
+		 * 4 MiB of DDR the kernel never maps, so the last oops/panic
+		 * survives the reset and shows up in /sys/fs/pstore.  20 records
+		 * of 128 KiB (a full arm64 oops dump is 15-20 KiB, so this holds
+		 * several), 1 MiB of console output and 512 KiB of pmsg for
+		 * userspace markers via /dev/pmsg0.  No ECC: an unexpected wipe
+		 * of the region then costs a record instead of invalidating it.
+		 */
 		ramoops@b0000000 {
 			compatible = "ramoops";
 			reg = <0x0 0xb0000000 0x0 0x400000>;
-			record-size = <0x1000>;
-			console-size = <0x200000>;
-			ecc-size = <16>;
+			record-size = <0x20000>;
+			console-size = <0x100000>;
+			pmsg-size = <0x80000>;
 			no-map;
 		};
 
