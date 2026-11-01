@@ -1,0 +1,26 @@
+--- a/drivers/input/misc/pm8941-pwrkey.c
++++ b/drivers/input/misc/pm8941-pwrkey.c
+@@ -224,8 +224,22 @@
+ {
+ 	struct pm8941_pwrkey *pwrkey = dev_get_drvdata(dev);
+ 
+-	if (device_may_wakeup(dev))
++	if (device_may_wakeup(dev)) {
++		/*
++		 * nabu: the PMIC drops the PON pull-up around suspend, so the
++		 * key line floats low and reads as a press ~20ms after the IRQ
++		 * is armed for wake.  That ends s2idle immediately
++		 * ("PM: Triggering wakeup from IRQ 118" right after
++		 * "suspend-to-idle").  Re-assert the pull-up and give the line
++		 * time to settle before arming the wakeup.
++		 */
++		regmap_update_bits(pwrkey->regmap,
++				   pwrkey->baseaddr + PON_PULL_CTL,
++				   pwrkey->data->pull_up_bit,
++				   pwrkey->data->pull_up_bit);
++		usleep_range(2000, 3000);
+ 		enable_irq_wake(pwrkey->irq);
++	}
+ 
+ 	return 0;
+ }
