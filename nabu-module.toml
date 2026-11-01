@@ -6,6 +6,9 @@ description = "SM8150 platform device tree base and nabu device tree"
 requires    = []
 
 [provides]
+
+# Temporary: log the PMIC power-key IRQ status to find why suspend aborts.
+patches = ["patches/0001-pwrkey-diag.patch"]
 overlay = "kernel-overlay"
 rules   = ["config/99-nabu-serial-wakeup.rules"]
 
