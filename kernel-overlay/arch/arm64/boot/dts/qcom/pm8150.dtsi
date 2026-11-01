@@ -52,14 +52,7 @@
 
 			pon_pwrkey: pwrkey {
 				compatible = "qcom,pm8941-pwrkey";
-				/*
-				 * The PON key line is active low: pressing gives a
-				 * falling edge.  With EDGE_BOTH a release edge that is
-				 * still latched when the system suspends keeps the
-				 * threaded wakeup IRQ active, so check_wakeup_irqs()
-				 * aborts s2idle a few milliseconds in.
-				 */
-				interrupts = <0x0 0x8 0x0 IRQ_TYPE_EDGE_FALLING>;
+				interrupts = <0x0 0x8 0x0 IRQ_TYPE_EDGE_BOTH>;
 				debounce = <15625>;
 				bias-pull-up;
 				linux,code = <KEY_POWER>;
