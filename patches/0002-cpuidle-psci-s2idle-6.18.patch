@@ -1,0 +1,25 @@
+--- a/drivers/cpuidle/cpuidle-psci.c
++++ b/drivers/cpuidle/cpuidle-psci.c
+@@ -310,6 +310,22 @@
+ 	if (ret < 0)
+ 		return ret;
+ 
++	/*
++	 * States with "qcom,no-s2idle" must not be entered for
++	 * suspend-to-idle.  s2idle freezes the tick and never calls
++	 * tick_broadcast_enter(), so a state that stops the local timer loses
++	 * every timer armed before the suspend (the broadcast timer is not
++	 * programmed), which also breaks timer-based wakeups.
++	 */
++	for (i = 1; i < state_count; i++) {
++		state_node = of_get_cpu_state_node(cpu_node, i - 1);
++		if (!state_node)
++			break;
++		if (of_property_read_bool(state_node, "qcom,no-s2idle"))
++			drv->states[i].enter_s2idle = NULL;
++		of_node_put(state_node);
++	}
++
+ 	/* Idle states parsed correctly, store them in the per-cpu struct. */
+ 	data->psci_states = psci_states;
+ 	return 0;

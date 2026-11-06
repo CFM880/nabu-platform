@@ -7,7 +7,10 @@ requires    = []
 
 [provides]
 
-patches = ["patches/0001-pwrkey-suspend-wake.patch"]
+patches = [
+  "patches/0001-pwrkey-suspend-wake.patch",
+  "patches/0002-cpuidle-psci-s2idle.patch",
+]
 overlay = "kernel-overlay"
 rules   = ["config/99-nabu-serial-wakeup.rules"]
 

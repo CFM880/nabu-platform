@@ -295,18 +295,15 @@
 				exit-latency-us = <909>;
 				min-residency-us = <3934>;
 				local-timer-stop;
-
 				/*
-				 * nabu: with this state enabled the kernel
-				 * timers do not fire across s2idle (the arm
-				 * timer stops with the rail and the broadcast
-				 * timer never wakes the CPU: verified with a
-				 * 1s timer armed before suspend, which never
-				 * ran, and by removing local-timer-stop, which
-				 * hangs the boot).  That breaks the power-key
-				 * wakeup, so keep the CPUs in WFI instead.
+				 * nabu: s2idle freezes the tick and never
+				 * programs the broadcast timer, so a timer
+				 * armed before suspend never fires if the CPU
+				 * enters this state (measured: the power key
+				 * unmask timer did not run and the tablet could
+				 * not be woken).  Runtime idle still uses it.
 				 */
-				status = "disabled";
+				qcom,no-s2idle;
 			};
 
 			big_cpu_sleep_0: cpu-sleep-1-0 {
@@ -317,7 +314,7 @@
 				exit-latency-us = <1461>;
 				min-residency-us = <4488>;
 				local-timer-stop;
-				status = "disabled";
+				qcom,no-s2idle;
 			};
 		};
 
