@@ -1,0 +1,155 @@
+--- a/drivers/input/misc/pm8941-pwrkey.c
++++ b/drivers/input/misc/pm8941-pwrkey.c
+@@ -17,6 +17,7 @@
+ #include <linux/platform_device.h>
+ #include <linux/reboot.h>
+ #include <linux/regmap.h>
++#include <linux/timer.h>
+ 
+ #define PON_REV2			0x01
+ 
+@@ -43,6 +44,10 @@
+ #define  PON_PS_HOLD_TYPE_WARM_RESET	1
+ #define  PON_PS_HOLD_TYPE_SHUTDOWN	4
+ #define  PON_PS_HOLD_TYPE_HARD_RESET	7
++
++#define PON_INT_LATCHED_CLR		0x14
++#define PON_INT_EN_SET			0x15
++#define PON_INT_EN_CLR			0x16
+ 
+ #define PON_PULL_CTL			0x70
+ #define  PON_KPDPWR_PULL_UP		BIT(1)
+@@ -72,6 +77,14 @@
+ 	u32 pon_pbs_baseaddr;
+ 	struct regmap *regmap;
+ 	struct input_dev *input;
++
++	/* nabu: mask/consume the key across the suspend-entry transient */
++	u32 suspend_mask_ms;
++	struct timer_list unmask_timer;
++	bool irq_masked;
++	bool suspended;
++	bool swallow_release;
++	ktime_t drop_until;
+ 
+ 	unsigned int revision;
+ 	unsigned int subtype;
+@@ -167,6 +180,20 @@
+ 
+ 	sts &= pwrkey->data->status_bit;
+ 
++	/*
++	 * nabu: the press that wakes the system must not reach userspace, or
++	 * logind suspends again as soon as the resume completes (the screen
++	 * flashes and goes dark again).  Consume the press and its release
++	 * while suspended and for a short while after resume.
++	 */
++	if (pwrkey->suspended ||
++	    (pwrkey->drop_until && ktime_before(ktime_get(), pwrkey->drop_until)) ||
++	    pwrkey->swallow_release) {
++		pwrkey->swallow_release = sts;
++		pwrkey->last_status = sts;
++		return IRQ_HANDLED;
++	}
++
+ 	if (pwrkey->sw_debounce_time_us && !sts)
+ 		pwrkey->sw_debounce_end_time = ktime_add_us(ktime_get(),
+ 						pwrkey->sw_debounce_time_us);
+@@ -220,12 +247,64 @@
+ 	return 0;
+ }
+ 
++static void pm8941_pwrkey_mask(struct pm8941_pwrkey *pwrkey, bool mask)
++{
++	u8 bit = pwrkey->data->status_bit;
++
++	if (mask) {
++		regmap_write(pwrkey->regmap,
++			     pwrkey->baseaddr + PON_INT_EN_CLR, bit);
++		regmap_write(pwrkey->regmap,
++			     pwrkey->baseaddr + PON_INT_LATCHED_CLR, bit);
++	} else {
++		regmap_write(pwrkey->regmap,
++			     pwrkey->baseaddr + PON_INT_LATCHED_CLR, bit);
++		regmap_write(pwrkey->regmap,
++			     pwrkey->baseaddr + PON_INT_EN_SET, bit);
++	}
++
++	pwrkey->irq_masked = mask;
++}
++
++static void pm8941_pwrkey_unmask(struct timer_list *t)
++{
++	struct pm8941_pwrkey *pwrkey = timer_container_of(pwrkey, t,
++							  unmask_timer);
++	unsigned int sts = 0;
++
++	if (!pwrkey->irq_masked)
++		return;
++
++	regmap_read(pwrkey->regmap, pwrkey->baseaddr + PON_RT_STS, &sts);
++	pm8941_pwrkey_mask(pwrkey, false);
++	dev_dbg(pwrkey->dev, "key IRQ unmasked, RT_STS=0x%x\n", sts);
++}
++
+ static int pm8941_pwrkey_suspend(struct device *dev)
+ {
+ 	struct pm8941_pwrkey *pwrkey = dev_get_drvdata(dev);
+ 
+-	if (device_may_wakeup(dev))
+-		enable_irq_wake(pwrkey->irq);
++	if (!device_may_wakeup(dev))
++		return 0;
++
++	enable_irq_wake(pwrkey->irq);
++
++	if (pwrkey->suspend_mask_ms) {
++		/*
++		 * nabu: the PMIC asserts KPDPWR for ~180ms right after
++		 * suspend-to-idle entry although nobody touches the tablet, and
++		 * with the wakeup armed that ends the suspend immediately
++		 * (measured on 6.14 and 6.18).  Clear the PON interrupt enable
++		 * so the transient never becomes an IRQ, and enable it again
++		 * once the line has settled.  disable_irq() cannot be used for
++		 * this: an armed IRQ is not masked by the IRQ core.
++		 */
++		pwrkey->suspended = true;
++		pwrkey->drop_until = 0;
++		pm8941_pwrkey_mask(pwrkey, true);
++		mod_timer(&pwrkey->unmask_timer,
++			  jiffies + msecs_to_jiffies(pwrkey->suspend_mask_ms));
++	}
+ 
+ 	return 0;
+ }
+@@ -233,6 +312,16 @@
+ static int pm8941_pwrkey_resume(struct device *dev)
+ {
+ 	struct pm8941_pwrkey *pwrkey = dev_get_drvdata(dev);
++
++	if (pwrkey->suspend_mask_ms) {
++		timer_delete_sync(&pwrkey->unmask_timer);
++		if (pwrkey->irq_masked)
++			pm8941_pwrkey_mask(pwrkey, false);
++
++		pwrkey->suspended = false;
++		pwrkey->swallow_release = pwrkey->last_status;
++		pwrkey->drop_until = ktime_add_ms(ktime_get(), 500);
++	}
+ 
+ 	if (device_may_wakeup(dev))
+ 		disable_irq_wake(pwrkey->irq);
+@@ -377,6 +466,13 @@
+ 		}
+ 	}
+ 
++	error = device_property_read_u32(&pdev->dev, "qcom,suspend-irq-mask-ms",
++					 &pwrkey->suspend_mask_ms);
++	if (error)
++		pwrkey->suspend_mask_ms = 0;
++
++	timer_setup(&pwrkey->unmask_timer, pm8941_pwrkey_unmask, 0);
++
+ 	error = devm_request_threaded_irq(&pdev->dev, pwrkey->irq,
+ 					  NULL, pm8941_pwrkey_irq,
+ 					  IRQF_ONESHOT,

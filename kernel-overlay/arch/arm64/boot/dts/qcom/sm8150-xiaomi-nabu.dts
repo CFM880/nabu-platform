@@ -760,6 +760,15 @@
 
 &pon_pwrkey {
 	status = "okay";
+
+	/*
+	 * The PMIC asserts KPDPWR for ~180ms right after suspend-to-idle entry
+	 * (PON_RT_STS bit0 set although nobody touches the tablet), which ends
+	 * the suspend as soon as the wakeup is armed.  Keep the PON interrupt
+	 * disabled for a second across suspend entry so the transient never
+	 * reaches the AP.
+	 */
+	qcom,suspend-irq-mask-ms = <1000>;
 };
 
 &pon_resin {
