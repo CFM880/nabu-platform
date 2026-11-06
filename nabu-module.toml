@@ -10,7 +10,6 @@ requires    = []
 patches = [
   "patches/0001-pwrkey-suspend-wake.patch",
   "patches/0002-cpuidle-psci-s2idle.patch",
-  "patches/0003-cpuidle-s2idle-broadcast.patch",
 ]
 overlay = "kernel-overlay"
 rules   = ["config/99-nabu-serial-wakeup.rules"]

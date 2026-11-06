@@ -295,6 +295,15 @@
 				exit-latency-us = <909>;
 				min-residency-us = <3934>;
 				local-timer-stop;
+				/*
+				 * nabu: s2idle freezes the tick and never
+				 * programs the broadcast timer, so a timer
+				 * armed before suspend never fires if the CPU
+				 * enters this state (measured: the power key
+				 * unmask timer did not run and the tablet could
+				 * not be woken).  Runtime idle still uses it.
+				 */
+				qcom,no-s2idle;
 			};
 
 			big_cpu_sleep_0: cpu-sleep-1-0 {
@@ -305,6 +314,7 @@
 				exit-latency-us = <1461>;
 				min-residency-us = <4488>;
 				local-timer-stop;
+				qcom,no-s2idle;
 			};
 		};
 
