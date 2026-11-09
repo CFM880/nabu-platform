@@ -27,6 +27,7 @@
 #include <linux/platform_device.h>
 #include <linux/reboot.h>
 #include <linux/regmap.h>
+#include <linux/suspend.h>
 #include <linux/timer.h>
 
 #define PON_REV2			0x01
@@ -95,6 +96,9 @@ struct pm8941_pwrkey {
 	bool suspended;
 	bool swallow_release;
 	ktime_t drop_until;
+	bool wake_on_irq;
+	bool mem_path;
+	ktime_t suspend_time;
 
 	unsigned int revision;
 	unsigned int subtype;
@@ -169,6 +173,9 @@ static int pm8941_reboot_notify(struct notifier_block *nb,
 	return NOTIFY_DONE;
 }
 
+/* nabu: SDAM marker used by the suspend investigation, see nabu-suspend.c */
+void nabu_suspend_mark(u8 v);
+
 static irqreturn_t pm8941_pwrkey_irq(int irq, void *_data)
 {
 	struct pm8941_pwrkey *pwrkey = _data;
@@ -196,6 +203,20 @@ static irqreturn_t pm8941_pwrkey_irq(int irq, void *_data)
 	 * flashes and goes dark again).  Consume the press and its release
 	 * while suspended and for a short while after resume.
 	 */
+	if (pwrkey->mem_path && pwrkey->suspended) {
+		if (ktime_before(ktime_get(),
+				 ktime_add_ms(pwrkey->suspend_time, 1000))) {
+			/* suspend-entry transient */
+			pwrkey->last_status = sts;
+			return IRQ_HANDLED;
+		}
+		pm_wakeup_event(pwrkey->dev, 0);
+		pm_system_wakeup();
+		pwrkey->swallow_release = sts;
+		pwrkey->last_status = sts;
+		return IRQ_HANDLED;
+	}
+
 	if (pwrkey->suspended ||
 	    (pwrkey->drop_until && ktime_before(ktime_get(), pwrkey->drop_until)) ||
 	    pwrkey->swallow_release) {
@@ -297,6 +318,19 @@ static int pm8941_pwrkey_suspend(struct device *dev)
 	if (!device_may_wakeup(dev))
 		return 0;
 
+	if (pwrkey->wake_on_irq && pm_suspend_target_state == PM_SUSPEND_MEM) {
+		pwrkey->mem_path = true;
+		pwrkey->suspend_time = ktime_get();
+		pwrkey->suspended = true;
+		/*
+		 * Keep the IRQ enabled (IRQF_NO_SUSPEND) and report the
+		 * wakeup from the handler; do not arm it, so the core does
+		 * not disable it after the false suspend-entry press.
+		 */
+		enable_irq_wake(pwrkey->irq);
+		return 0;
+	}
+
 	enable_irq_wake(pwrkey->irq);
 
 	if (pwrkey->suspend_mask_ms) {
@@ -323,6 +357,15 @@ static int pm8941_pwrkey_resume(struct device *dev)
 {
 	struct pm8941_pwrkey *pwrkey = dev_get_drvdata(dev);
 
+	if (pwrkey->mem_path) {
+		pwrkey->mem_path = false;
+		pwrkey->suspended = false;
+		pwrkey->swallow_release = pwrkey->last_status;
+		pwrkey->drop_until = ktime_add_ms(ktime_get(), 500);
+		disable_irq_wake(pwrkey->irq);
+		return 0;
+	}
+
 	if (pwrkey->suspend_mask_ms) {
 		timer_delete_sync(&pwrkey->unmask_timer);
 		if (pwrkey->irq_masked)
@@ -341,6 +384,17 @@ static int pm8941_pwrkey_resume(struct device *dev)
 
 static DEFINE_SIMPLE_DEV_PM_OPS(pm8941_pwr_key_pm_ops,
 				pm8941_pwrkey_suspend, pm8941_pwrkey_resume);
+
+#define NABU_SDAM_MARK_REG	0xb17e
+
+static struct pm8941_pwrkey *nabu_pwrkey;
+
+void nabu_suspend_mark(u8 v)
+{
+	if (nabu_pwrkey)
+		regmap_write(nabu_pwrkey->regmap, NABU_SDAM_MARK_REG, v);
+}
+EXPORT_SYMBOL_GPL(nabu_suspend_mark);
 
 static int pm8941_pwrkey_probe(struct platform_device *pdev)
 {
@@ -483,9 +537,14 @@ static int pm8941_pwrkey_probe(struct platform_device *pdev)
 
 	timer_setup(&pwrkey->unmask_timer, pm8941_pwrkey_unmask, 0);
 
+	pwrkey->wake_on_irq = device_property_read_bool(&pdev->dev,
+						"qcom,suspend-wake-on-irq");
+
 	error = devm_request_threaded_irq(&pdev->dev, pwrkey->irq,
 					  NULL, pm8941_pwrkey_irq,
-					  IRQF_ONESHOT,
+					  IRQF_ONESHOT |
+					  (pwrkey->wake_on_irq ?
+					   IRQF_NO_SUSPEND : 0),
 					  pwrkey->data->name, pwrkey);
 	if (error) {
 		dev_err(&pdev->dev, "failed requesting IRQ: %d\n", error);
@@ -514,6 +573,8 @@ static int pm8941_pwrkey_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, pwrkey);
 	device_init_wakeup(&pdev->dev, wakeup);
+
+	nabu_pwrkey = pwrkey;
 
 	return 0;
 }
