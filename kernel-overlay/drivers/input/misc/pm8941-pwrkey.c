@@ -369,6 +369,18 @@ void nabu_suspend_mark(u8 v)
 }
 EXPORT_SYMBOL_GPL(nabu_suspend_mark);
 
+/* nabu: re-arm the key wakeup for a platform mem suspend entry */
+void nabu_pwrkey_rearm(void)
+{
+	if (!nabu_pwrkey)
+		return;
+
+	/* force the chip's set_wake() to run again */
+	disable_irq_wake(nabu_pwrkey->irq);
+	enable_irq_wake(nabu_pwrkey->irq);
+}
+EXPORT_SYMBOL_GPL(nabu_pwrkey_rearm);
+
 static int pm8941_pwrkey_probe(struct platform_device *pdev)
 {
 	struct pm8941_pwrkey *pwrkey;

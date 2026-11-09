@@ -27,6 +27,7 @@
 
 /* nabu: black-box markers in PM8150 SDAM, see pm8941-pwrkey.c */
 extern void nabu_suspend_mark(u8 v);
+extern void nabu_pwrkey_rearm(void);
 
 static ktime_t nabu_suspend_time;
 
@@ -51,6 +52,12 @@ static int nabu_suspend_enter(suspend_state_t state)
 	if (ret)
 		return ret;
 
+	/*
+	 * Re-arm the key wakeup before every entry: after the first wake the
+	 * PDC/PMIC wake configuration may have been consumed, and the retry
+	 * would otherwise be unwakeable.
+	 */
+	nabu_pwrkey_rearm();
 	nabu_suspend_mark(0x11);
 	pr_info("nabu: entering PSCI state %#x\n", NABU_PSCI_SUSPEND_STATE);
 	psci_cpu_suspend_enter(NABU_PSCI_SUSPEND_STATE);
