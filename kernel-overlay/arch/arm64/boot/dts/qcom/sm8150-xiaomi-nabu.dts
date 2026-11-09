@@ -769,6 +769,7 @@
 	 * reaches the AP.
 	 */
 	qcom,suspend-irq-mask-ms = <1000>;
+	qcom,suspend-wake-on-irq;
 };
 
 &pon_resin {
