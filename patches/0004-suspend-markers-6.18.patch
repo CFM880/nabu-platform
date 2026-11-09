@@ -1,0 +1,71 @@
+--- a/drivers/input/misc/pm8941-pwrkey.c
++++ b/drivers/input/misc/pm8941-pwrkey.c
+@@ -159,6 +159,9 @@
+ 	return NOTIFY_DONE;
+ }
+ 
++/* nabu: implemented at the bottom of this file (s2idle investigation) */
++void nabu_suspend_mark(u8 v);
++
+ static irqreturn_t pm8941_pwrkey_irq(int irq, void *_data)
+ {
+ 	struct pm8941_pwrkey *pwrkey = _data;
+@@ -186,6 +189,9 @@
+ 	 * flashes and goes dark again).  Consume the press and its release
+ 	 * while suspended and for a short while after resume.
+ 	 */
++	if (pwrkey->suspended)
++		nabu_suspend_mark(0x03);
++
+ 	if (pwrkey->suspended ||
+ 	    (pwrkey->drop_until && ktime_before(ktime_get(), pwrkey->drop_until)) ||
+ 	    pwrkey->swallow_release) {
+@@ -277,6 +283,7 @@
+ 
+ 	regmap_read(pwrkey->regmap, pwrkey->baseaddr + PON_RT_STS, &sts);
+ 	pm8941_pwrkey_mask(pwrkey, false);
++	nabu_suspend_mark(0x02);
+ 	dev_dbg(pwrkey->dev, "key IRQ unmasked, RT_STS=0x%x\n", sts);
+ }
+ 
+@@ -301,6 +308,7 @@
+ 		 */
+ 		pwrkey->suspended = true;
+ 		pwrkey->drop_until = 0;
++		nabu_suspend_mark(0x01);
+ 		pm8941_pwrkey_mask(pwrkey, true);
+ 		mod_timer(&pwrkey->unmask_timer,
+ 			  jiffies + msecs_to_jiffies(pwrkey->suspend_mask_ms));
+@@ -331,6 +339,23 @@
+ 
+ static DEFINE_SIMPLE_DEV_PM_OPS(pm8941_pwr_key_pm_ops,
+ 				pm8941_pwrkey_suspend, pm8941_pwrkey_resume);
++
++/*
++ * nabu: black-box marker for the s2idle investigation.  The PM8150 SDAM
++ * (sdam@b100) is RAM in the PMIC's always-on domain, so a byte written there
++ * survives an AP reset and can be read back after a hung boot through
++ * /sys/bus/nvmem/devices/spmi_sdam1/nvmem.
++ */
++#define NABU_SDAM_MARK_REG	0xb17e
++
++static struct pm8941_pwrkey *nabu_pwrkey;
++
++void nabu_suspend_mark(u8 v)
++{
++	if (nabu_pwrkey)
++		regmap_write(nabu_pwrkey->regmap, NABU_SDAM_MARK_REG, v);
++}
++EXPORT_SYMBOL_GPL(nabu_suspend_mark);
+ 
+ static int pm8941_pwrkey_probe(struct platform_device *pdev)
+ {
+@@ -505,6 +530,8 @@
+ 	platform_set_drvdata(pdev, pwrkey);
+ 	device_init_wakeup(&pdev->dev, wakeup);
+ 
++	nabu_pwrkey = pwrkey;
++
+ 	return 0;
+ }
+ 

@@ -1,0 +1,50 @@
+--- a/drivers/soc/qcom/rpmh-rsc.c
++++ b/drivers/soc/qcom/rpmh-rsc.c
+@@ -31,6 +31,10 @@
+ #include <soc/qcom/cmd-db.h>
+ #include <soc/qcom/tcs.h>
+ #include <dt-bindings/soc/qcom,rpmh-rsc.h>
++
++#include <asm/sysreg.h>
++/* nabu: s2idle investigation marker, see pm8941-pwrkey.c */
++extern void nabu_suspend_mark(u8 v);
+ 
+ #include "rpmh-internal.h"
+ 
+@@ -803,12 +807,23 @@
+ 	u64 wakeup_us, wakeup_cycles = ~0;
+ 	u32 lo, hi;
+ 
+-	if (!drv->tcs[CONTROL_TCS].num_tcs || !drv->genpd_nb.notifier_call)
++	if (!drv->tcs[CONTROL_TCS].num_tcs)
+ 		return;
+ 
+-	/* Set highest time when system (timekeeping) is suspended */
+-	if (system_state == SYSTEM_SUSPEND)
++	/*
++	 * nabu: mainline disables timer wakeups during system suspend by
++	 * writing the highest value.  Program the PDC with the pending local
++	 * arch timer compare value instead, so a timer can wake the AP from
++	 * the rail-collapse states used by s2idle.
++	 */
++	if (system_state == SYSTEM_SUSPEND) {
++		nabu_suspend_mark(0x30);
++		wakeup_cycles = read_sysreg(cntv_cval_el0);
+ 		goto exit;
++	}
++
++	if (!drv->genpd_nb.notifier_call)
++		return;
+ 
+ 	/* Find the earliest hrtimer wakeup from online cpus */
+ 	wakeup = dev_pm_genpd_get_next_hrtimer(drv->dev);
+@@ -830,6 +845,9 @@
+ 
+ 	writel_relaxed(lo, drv->base + RSC_DRV_CTL_TCS_DATA_LO);
+ 	writel_relaxed(hi, drv->base + RSC_DRV_CTL_TCS_DATA_HI);
++
++	if (system_state == SYSTEM_SUSPEND)
++		nabu_suspend_mark(0x32);
+ }
+ 
+ /**
