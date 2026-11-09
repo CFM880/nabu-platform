@@ -27,6 +27,7 @@
 #include <linux/platform_device.h>
 #include <linux/reboot.h>
 #include <linux/regmap.h>
+#include <linux/suspend.h>
 #include <linux/timer.h>
 
 #define PON_REV2			0x01
@@ -169,6 +170,9 @@ static int pm8941_reboot_notify(struct notifier_block *nb,
 	return NOTIFY_DONE;
 }
 
+/* nabu: SDAM marker used by the suspend investigation, see nabu-suspend.c */
+void nabu_suspend_mark(u8 v);
+
 static irqreturn_t pm8941_pwrkey_irq(int irq, void *_data)
 {
 	struct pm8941_pwrkey *pwrkey = _data;
@@ -297,9 +301,10 @@ static int pm8941_pwrkey_suspend(struct device *dev)
 	if (!device_may_wakeup(dev))
 		return 0;
 
-	enable_irq_wake(pwrkey->irq);
-
 	if (pwrkey->suspend_mask_ms) {
+		pwrkey->suspended = true;
+		pwrkey->drop_until = 0;
+
 		/*
 		 * nabu: the PMIC asserts KPDPWR for ~180ms right after
 		 * suspend-to-idle entry although nobody touches the tablet, and
@@ -308,13 +313,19 @@ static int pm8941_pwrkey_suspend(struct device *dev)
 		 * so the transient never becomes an IRQ, and enable it again
 		 * once the line has settled.  disable_irq() cannot be used for
 		 * this: an armed IRQ is not masked by the IRQ core.
+		 *
+		 * This is a suspend-to-idle problem only; a platform "mem"
+		 * suspend goes through the AOSS state and does not need it.
 		 */
-		pwrkey->suspended = true;
-		pwrkey->drop_until = 0;
-		pm8941_pwrkey_mask(pwrkey, true);
-		mod_timer(&pwrkey->unmask_timer,
-			  jiffies + msecs_to_jiffies(pwrkey->suspend_mask_ms));
+		if (pm_suspend_target_state == PM_SUSPEND_TO_IDLE) {
+			nabu_suspend_mark(0x01);
+			pm8941_pwrkey_mask(pwrkey, true);
+			mod_timer(&pwrkey->unmask_timer,
+				  jiffies + msecs_to_jiffies(pwrkey->suspend_mask_ms));
+		}
 	}
+
+	enable_irq_wake(pwrkey->irq);
 
 	return 0;
 }
@@ -341,6 +352,17 @@ static int pm8941_pwrkey_resume(struct device *dev)
 
 static DEFINE_SIMPLE_DEV_PM_OPS(pm8941_pwr_key_pm_ops,
 				pm8941_pwrkey_suspend, pm8941_pwrkey_resume);
+
+#define NABU_SDAM_MARK_REG	0xb17e
+
+static struct pm8941_pwrkey *nabu_pwrkey;
+
+void nabu_suspend_mark(u8 v)
+{
+	if (nabu_pwrkey)
+		regmap_write(nabu_pwrkey->regmap, NABU_SDAM_MARK_REG, v);
+}
+EXPORT_SYMBOL_GPL(nabu_suspend_mark);
 
 static int pm8941_pwrkey_probe(struct platform_device *pdev)
 {
@@ -514,6 +536,8 @@ static int pm8941_pwrkey_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, pwrkey);
 	device_init_wakeup(&pdev->dev, wakeup);
+
+	nabu_pwrkey = pwrkey;
 
 	return 0;
 }
