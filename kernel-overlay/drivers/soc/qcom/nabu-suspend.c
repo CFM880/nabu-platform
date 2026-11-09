@@ -17,6 +17,7 @@
  * Details and measurements: nabu-linux-overlay/docs/port-6.18.md
  */
 #include <linux/cpu_pm.h>
+#include <linux/interrupt.h>
 #include <linux/init.h>
 #include <linux/kernel.h>
 #include <linux/psci.h>
@@ -80,9 +81,12 @@ static bool nabu_suspend_again(void)
 	if (ktime_before(ktime_get(),
 			 ktime_add_ms(nabu_suspend_time, 1000))) {
 		/*
-		 * Forget the PMIC transient (press and release edges) so the
-		 * next suspend_enter() is allowed to enter the state again.
+		 * The wake IRQ was disabled by the IRQ core when it reported
+		 * the transient (a later resume would re-enable it).  Restore
+		 * it here so the next suspend_enter() can be woken again, and
+		 * forget the recorded wakeup.
 		 */
+		resume_device_irqs();
 		pm_wakeup_clear(0);
 		return true;
 	}
