@@ -1,0 +1,55 @@
+--- a/drivers/cpuidle/cpuidle.c
++++ b/drivers/cpuidle/cpuidle.c
+@@ -141,17 +141,37 @@
+ }
+ 
+ #ifdef CONFIG_SUSPEND
++/* nabu: s2idle investigation marker, see pm8941-pwrkey.c */
++extern void nabu_suspend_mark(u8 v);
++
+ static noinstr void enter_s2idle_proper(struct cpuidle_driver *drv,
+ 					 struct cpuidle_device *dev, int index)
+ {
+ 	struct cpuidle_state *target_state = &drv->states[index];
++	bool broadcast = false;
+ 	ktime_t time_start, time_end;
+ 
+ 	instrumentation_begin();
+ 
+ 	time_start = ns_to_ktime(local_clock_noinstr());
+ 
++	nabu_suspend_mark(0x10);
+ 	tick_freeze();
++	nabu_suspend_mark(0x11);
++
++	if (target_state->flags & CPUIDLE_FLAG_TIMER_STOP) {
++		/* No broadcast timer: do not enter a state that stops the
++		 * local timer, nobody would wake us up again. */
++		if (tick_broadcast_enter()) {
++			nabu_suspend_mark(0x12);
++			tick_unfreeze();
++			instrumentation_end();
++			return;
++		}
++		nabu_suspend_mark(0x13);
++		broadcast = true;
++	}
++
+ 	/*
+ 	 * The state used here cannot be a "coupled" one, because the "coupled"
+ 	 * cpuidle mechanism enables interrupts and doing that with timekeeping
+@@ -170,8 +190,13 @@
+ 		instrumentation_end();
+ 		ct_cpuidle_exit();
+ 	}
++	nabu_suspend_mark(0x14);
++	start_critical_timings();
++	if (broadcast)
++		tick_broadcast_exit();
++	nabu_suspend_mark(0x15);
+ 	tick_unfreeze();
+-	start_critical_timings();
++	nabu_suspend_mark(0x16);
+ 
+ 	time_end = ns_to_ktime(local_clock_noinstr());
+ 
