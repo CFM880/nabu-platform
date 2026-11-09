@@ -169,6 +169,9 @@ static int pm8941_reboot_notify(struct notifier_block *nb,
 	return NOTIFY_DONE;
 }
 
+/* nabu: s2idle investigation marker, implemented at the bottom of this file */
+void nabu_suspend_mark(u8 v);
+
 static irqreturn_t pm8941_pwrkey_irq(int irq, void *_data)
 {
 	struct pm8941_pwrkey *pwrkey = _data;
@@ -287,6 +290,7 @@ static void pm8941_pwrkey_unmask(struct timer_list *t)
 
 	regmap_read(pwrkey->regmap, pwrkey->baseaddr + PON_RT_STS, &sts);
 	pm8941_pwrkey_mask(pwrkey, false);
+	nabu_suspend_mark(0x02);
 	dev_dbg(pwrkey->dev, "key IRQ unmasked, RT_STS=0x%x\n", sts);
 }
 
@@ -311,6 +315,7 @@ static int pm8941_pwrkey_suspend(struct device *dev)
 		 */
 		pwrkey->suspended = true;
 		pwrkey->drop_until = 0;
+		nabu_suspend_mark(0x01);
 		pm8941_pwrkey_mask(pwrkey, true);
 		mod_timer(&pwrkey->unmask_timer,
 			  jiffies + msecs_to_jiffies(pwrkey->suspend_mask_ms));
@@ -341,6 +346,17 @@ static int pm8941_pwrkey_resume(struct device *dev)
 
 static DEFINE_SIMPLE_DEV_PM_OPS(pm8941_pwr_key_pm_ops,
 				pm8941_pwrkey_suspend, pm8941_pwrkey_resume);
+
+#define NABU_SDAM_MARK_REG	0xb17e
+
+static struct pm8941_pwrkey *nabu_pwrkey;
+
+void nabu_suspend_mark(u8 v)
+{
+	if (nabu_pwrkey)
+		regmap_write(nabu_pwrkey->regmap, NABU_SDAM_MARK_REG, v);
+}
+EXPORT_SYMBOL_GPL(nabu_suspend_mark);
 
 static int pm8941_pwrkey_probe(struct platform_device *pdev)
 {
@@ -514,6 +530,8 @@ static int pm8941_pwrkey_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, pwrkey);
 	device_init_wakeup(&pdev->dev, wakeup);
+
+	nabu_pwrkey = pwrkey;
 
 	return 0;
 }

@@ -69,6 +69,9 @@ static inline void psci_clear_domain_state(void)
 	__this_cpu_write(psci_domain_state.state, 0);
 }
 
+/* nabu: s2idle investigation marker, see pm8941-pwrkey.c */
+extern void nabu_suspend_mark(u8 v);
+
 static __cpuidle int __psci_enter_domain_idle_state(struct cpuidle_device *dev,
 						    struct cpuidle_driver *drv, int idx,
 						    bool s2idle)
@@ -95,6 +98,11 @@ static __cpuidle int __psci_enter_domain_idle_state(struct cpuidle_device *dev,
 		state = ds->state;
 
 	trace_psci_domain_idle_enter(dev->cpu, state, s2idle);
+
+	/* nabu: 0x40 = CPU-only state, 0x41 = domain/AOSS state */
+	if (system_state == SYSTEM_SUSPEND)
+		nabu_suspend_mark(0x40 | ((state >> 24) & 0x0f));
+
 	ret = psci_cpu_suspend_enter(state) ? -1 : idx;
 	trace_psci_domain_idle_exit(dev->cpu, state, s2idle);
 
