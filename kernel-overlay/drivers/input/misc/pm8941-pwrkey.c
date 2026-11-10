@@ -313,6 +313,15 @@ static int pm8941_pwrkey_suspend(struct device *dev)
 		pwrkey->suspended = true;
 		pwrkey->drop_until = 0;
 		enable_irq_wake(pwrkey->irq);
+
+		/*
+		 * nabu: arm the PON interrupt for the platform entry.  The
+		 * IRQ core cannot do this here (the SPMI summary is a chained
+		 * interrupt), and the mem entry must not touch the PMIC: its
+		 * SPMI bus is already partly gated when the platform entry
+		 * runs.  The bus is fine at this point.
+		 */
+		pm8941_pwrkey_mask(pwrkey, false);
 		return 0;
 	}
 

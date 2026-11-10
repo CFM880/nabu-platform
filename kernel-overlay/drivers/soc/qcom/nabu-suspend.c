@@ -6,195 +6,52 @@
  * offlines the secondary CPUs (done by the PM core for any platform suspend
  * state), lets the last CPU flush the RPMh sleep votes and program the PDC
  * wakeup timer, and then enters the PSCI AOSS sleep state
- * (0x4100c244 = affinity 1, cluster mode 0xC24 "LLCC off / AOSS sleep",
- * CPU mode 0x4 "rail power collapse").
+ * (0x4100c244 = reset flag, affinity 1, cluster mode 0xC24 "LLCC off / AOSS
+ * sleep", CPU mode 0x4 "rail power collapse").
  *
  * Mainline only registers s2idle for this SoC, and s2idle cannot be woken
  * from the AOSS state on this platform.  Do what the vendor does and enter
  * the same PSCI state from a platform suspend op.
  *
- * The PMIC asserts a false ~180ms power-key press right after the state is
- * entered (measured).  It is a normal PMIC interrupt, so it leaves the SPMI
- * summary line to the PDC asserted; since .enter() runs with interrupts
- * disabled nothing acknowledges it and any further entry returns at once.
- * Dispatch the chained summary line by hand after such an early return to
- * clear the latch, and keep re-entering until the state actually sticks.
- * A real key press later returns after the settle window and resumes.
+ * The key interrupt and the PDC pin that carries the SPMI arbiter summary are
+ * armed by pm8941_pwrkey_suspend(), which runs during the device suspend
+ * phase with a healthy SPMI bus.  This function must not touch the PMIC at
+ * all: the SPMI arbiter and the PMIC are already partially gated when the
+ * platform entry runs, and a stalled SPMI transaction hangs the machine with
+ * interrupts disabled (measured - the hang moves to wherever a PMIC register
+ * is touched from here).
  *
  * Details and measurements: nabu-linux-overlay/docs/port-6.18.md
  */
-#include <linux/delay.h>
 #include <linux/init.h>
-#include <linux/interrupt.h>
 #include <linux/kernel.h>
 #include <linux/psci.h>
 #include <linux/suspend.h>
 #include <linux/syscore_ops.h>
-#include <clocksource/arm_arch_timer.h>
 
 #define NABU_PSCI_SUSPEND_STATE	0x4100c244
-#define NABU_SETTLE_MS		2000
-#define NABU_MAX_ATTEMPTS	4000
 
-/* nabu: black-box markers in PM8150 SDAM, see pm8941-pwrkey.c */
-extern void nabu_suspend_mark(u8 v);
-extern void nabu_pwrkey_rearm(void);
-extern void nabu_pwrkey_allow_wake(void);
-extern unsigned int nabu_pwrkey_irq(void);
-/* PDC pin that carries the SPMI arbiter summary (all PMIC interrupts) */
-extern void nabu_pdc_enable_pin(int pin);
-extern unsigned int nabu_pdc_pin_irq(int pin);
 extern void nabu_pdc_restore(void);
-extern u32 nabu_pdc_pin_cfg(int pin);
-extern u32 nabu_pdc_pin_enabled(int pin);
-extern u32 nabu_pwrkey_en(void);
-extern void nabu_pwrkey_irq_off(void);
-extern void nabu_pwrkey_irq_on(void);
-extern bool nabu_pwrkey_pressed(void);
-extern void nabu_pwrkey_drain(void);
-extern u32 nabu_pwrkey_latched(void);
-extern void nabu_suspend_word(u8 off, u32 v);
+extern void nabu_pdc_enable_pin(int pin);
+extern void nabu_suspend_mark(u8 v);
+
+/* PDC pin that carries the SPMI arbiter summary (all PMIC interrupts) */
 #define NABU_PDC_SPMI_PIN	1
-
-/*
- * Phase markers, so a hang can be located after the fact: the PM8150 SDAM
- * byte survives a reset while the kernel log of the failed suspend does not.
- *   0x08  PM_SUSPEND_PREPARE (userspace not frozen yet)
- *   0x09  syscore suspend (devices suspended, interrupts off)
- *   0x10  .enter() reached
- *   0x11  entering the PSCI state      0x12  back from it
- *   0x13  latched event drained        0x14  retry re-armed
- *   0x15  retry loop finished          0x16  .enter() about to return
- *   0x17  syscore resumed              0x18  PM_POST_SUSPEND
- */
-static int nabu_pm_notify(struct notifier_block *nb, unsigned long action,
-			  void *data)
-{
-	if (action == PM_SUSPEND_PREPARE)
-		nabu_suspend_mark(0x08);
-	else if (action == PM_POST_SUSPEND)
-		nabu_suspend_mark(0x18);
-
-	return NOTIFY_DONE;
-}
-
-static struct notifier_block nabu_pm_nb = {
-	.notifier_call = nabu_pm_notify,
-};
-
-static int nabu_syscore_suspend(void *data)
-{
-	nabu_suspend_mark(0x09);
-	return 0;
-}
-
-static void nabu_syscore_resume(void *data)
-{
-	nabu_suspend_mark(0x17);
-}
-
-static const struct syscore_ops nabu_syscore_ops = {
-	.suspend = nabu_syscore_suspend,
-	.resume = nabu_syscore_resume,
-};
-
-static struct syscore nabu_syscore = {
-	.ops = &nabu_syscore_ops,
-};
 
 static int nabu_suspend_enter(suspend_state_t state)
 {
-	u64 start, settle;
-	unsigned int irq;
-	int i;
-
 	if (!psci_ops.cpu_suspend)
 		return -EOPNOTSUPP;
 
-	nabu_suspend_mark(0x10);
-
 	/*
-	 * cpu_pm_enter()/cpu_cluster_pm_enter() are deliberately not called
-	 * here: the PM core does exactly that in its own syscore callbacks
-	 * (cpu_pm_suspend/cpu_pm_resume) before and after .enter().  A second
-	 * cpu_pm_enter() flushes the RPMh sleep/wake sets twice and unbalances
-	 * the RSC's cpus_in_pm counter, which deadlocks the next flush.
+	 * The PDC configuration does not survive the AOSS sleep and the pin
+	 * must be enabled for the PMIC interrupts to wake us.  These are MMIO
+	 * accesses to the always-on block, which are safe here.
 	 */
-
-	/*
-	 * Timekeeping is suspended while .enter() runs, so ktime_get() is not
-	 * usable here; use the raw arch counter instead.
-	 */
-	settle = (u64)arch_timer_get_rate() * NABU_SETTLE_MS / 1000;
-	start = arch_timer_read_counter();
-
-	/*
-	 * The PMIC asserts a false key press right after the entry.  Keep the
-	 * PON interrupt masked while it passes instead of dispatching it: the
-	 * chained summary handler would EOI the PDC pin at the GIC for an
-	 * interrupt that is not active, which corrupts the GIC running
-	 * priority and stops every later wakeup.
-	 */
-	nabu_pwrkey_irq_off();
-	for (i = 0; i < 40; i++) {
-		if (!nabu_pwrkey_pressed())
-			break;
-		mdelay(10);
-	}
-	mdelay(30);	/* let the line settle even if it was not sampled */
-
-	nabu_pdc_restore();	/* config does not survive a deep sleep */
+	nabu_pdc_restore();
 	nabu_pdc_enable_pin(NABU_PDC_SPMI_PIN);
-	nabu_pwrkey_irq_on();
-	nabu_pwrkey_rearm();
 
-	/* nabu: diagnostics - which virq carries the SPMI summary */
-	nabu_suspend_word(0x50, nabu_pdc_pin_irq(NABU_PDC_SPMI_PIN));
-
-	for (i = 0; i < NABU_MAX_ATTEMPTS; i++) {
-		/* nabu: state of the wake sources at the moment of entry */
-		nabu_suspend_word(0x40, nabu_pwrkey_en());
-		nabu_suspend_word(0x44, nabu_pwrkey_latched());
-		nabu_suspend_word(0x48, nabu_pdc_pin_cfg(NABU_PDC_SPMI_PIN));
-		nabu_suspend_word(0x4c, nabu_pdc_pin_enabled(NABU_PDC_SPMI_PIN));
-
-		nabu_suspend_mark(0x11);
-		psci_cpu_suspend_enter(NABU_PSCI_SUSPEND_STATE);
-		nabu_suspend_mark(0x12);
-
-		if (arch_timer_read_counter() - start > settle) {
-			/* slept for longer than the window: a real wakeup */
-			nabu_pwrkey_allow_wake();
-			break;
-		}
-
-		/*
-		 * Returned immediately, so the PMIC event that woke us is
-		 * still latched and the SPMI summary line is still asserted.
-		 * Run the chained handler once, exactly like the interrupt
-		 * would, so the latch is acknowledged; restore the wakeup
-		 * bookkeeping the pm core would otherwise do at resume.
-		 */
-		/* drain the child only, never the chained parent (see above) */
-		nabu_pwrkey_drain();
-		nabu_suspend_mark(0x13);
-		nabu_suspend_word(0x5c, i);
-
-		rearm_wake_irq(nabu_pwrkey_irq());
-		pm_wakeup_clear(0);
-
-		/* arm the key interrupt again for the next attempt */
-		nabu_pdc_restore();
-		nabu_pdc_enable_pin(NABU_PDC_SPMI_PIN);
-		nabu_pwrkey_rearm();
-		nabu_suspend_mark(0x14);
-	}
-
-	/* nabu: exit reason, 0x20 = settled, 0x21 = attempts used up */
-	nabu_suspend_mark(i < NABU_MAX_ATTEMPTS ? 0x20 : 0x21);
-	nabu_suspend_word(0x5c, i);
-	nabu_suspend_mark(0x15);
-	nabu_suspend_mark(0x16);
+	psci_cpu_suspend_enter(NABU_PSCI_SUSPEND_STATE);
 
 	return 0;
 }
@@ -204,13 +61,26 @@ static const struct platform_suspend_ops nabu_suspend_ops = {
 	.enter = nabu_suspend_enter,
 };
 
+/* phase marker, written from the PM notifier (healthy SPMI bus) */
+static int nabu_pm_notify(struct notifier_block *nb, unsigned long action,
+			  void *data)
+{
+	if (action == PM_SUSPEND_PREPARE)
+		nabu_suspend_mark(0x08);
+
+	return NOTIFY_DONE;
+}
+
+static struct notifier_block nabu_pm_nb = {
+	.notifier_call = nabu_pm_notify,
+};
+
 static int __init nabu_suspend_init(void)
 {
 	if (!psci_ops.cpu_suspend)
 		return -ENODEV;
 
 	register_pm_notifier(&nabu_pm_nb);
-	register_syscore(&nabu_syscore);
 	suspend_set_ops(&nabu_suspend_ops);
 	pr_info("nabu: platform mem suspend registered (PSCI %#x)\n",
 		NABU_PSCI_SUSPEND_STATE);
