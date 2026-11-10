@@ -422,6 +422,47 @@ void nabu_pwrkey_allow_wake(void)
 }
 EXPORT_SYMBOL_GPL(nabu_pwrkey_allow_wake);
 
+/* nabu: mask/unmask the PON interrupt without going through the IRQ core */
+void nabu_pwrkey_irq_off(void)
+{
+	if (nabu_pwrkey)
+		pm8941_pwrkey_mask(nabu_pwrkey, true);
+}
+EXPORT_SYMBOL_GPL(nabu_pwrkey_irq_off);
+
+void nabu_pwrkey_irq_on(void)
+{
+	if (nabu_pwrkey)
+		pm8941_pwrkey_mask(nabu_pwrkey, false);
+}
+EXPORT_SYMBOL_GPL(nabu_pwrkey_irq_on);
+
+/* nabu: is the key line still asserted (the entry transient lasts ~200ms) */
+bool nabu_pwrkey_pressed(void)
+{
+	u32 sts = 0;
+
+	if (!nabu_pwrkey)
+		return false;
+
+	regmap_read(nabu_pwrkey->regmap, nabu_pwrkey->baseaddr + PON_RT_STS, &sts);
+	return sts & nabu_pwrkey->data->status_bit;
+}
+EXPORT_SYMBOL_GPL(nabu_pwrkey_pressed);
+
+/*
+ * nabu: drain a latched key event by dispatching the child IRQ only.  Going
+ * through the chained SPMI summary handler would EOI the parent PDC pin at
+ * the GIC, and an EOI for an interrupt that is not active corrupts the GIC
+ * running priority on GICv3, after which wakeups are never delivered again.
+ */
+void nabu_pwrkey_drain(void)
+{
+	if (nabu_pwrkey)
+		generic_handle_irq(nabu_pwrkey->irq);
+}
+EXPORT_SYMBOL_GPL(nabu_pwrkey_drain);
+
 /* nabu: PON interrupt enable / latched state, for the SDAM black box */
 u32 nabu_pwrkey_en(void)
 {

@@ -23,6 +23,7 @@
  *
  * Details and measurements: nabu-linux-overlay/docs/port-6.18.md
  */
+#include <linux/delay.h>
 #include <linux/init.h>
 #include <linux/interrupt.h>
 #include <linux/kernel.h>
@@ -47,6 +48,10 @@ extern void nabu_pdc_restore(void);
 extern u32 nabu_pdc_pin_cfg(int pin);
 extern u32 nabu_pdc_pin_enabled(int pin);
 extern u32 nabu_pwrkey_en(void);
+extern void nabu_pwrkey_irq_off(void);
+extern void nabu_pwrkey_irq_on(void);
+extern bool nabu_pwrkey_pressed(void);
+extern void nabu_pwrkey_drain(void);
 extern u32 nabu_pwrkey_latched(void);
 extern void nabu_suspend_word(u8 off, u32 v);
 #define NABU_PDC_SPMI_PIN	1
@@ -123,10 +128,24 @@ static int nabu_suspend_enter(suspend_state_t state)
 	settle = (u64)arch_timer_get_rate() * NABU_SETTLE_MS / 1000;
 	start = arch_timer_read_counter();
 
-	/* the PMIC interrupts have to reach the PDC even though the IRQ core
-	 * disabled the (non wakeup) key interrupt at suspend */
+	/*
+	 * The PMIC asserts a false key press right after the entry.  Keep the
+	 * PON interrupt masked while it passes instead of dispatching it: the
+	 * chained summary handler would EOI the PDC pin at the GIC for an
+	 * interrupt that is not active, which corrupts the GIC running
+	 * priority and stops every later wakeup.
+	 */
+	nabu_pwrkey_irq_off();
+	for (i = 0; i < 40; i++) {
+		if (!nabu_pwrkey_pressed())
+			break;
+		mdelay(10);
+	}
+	mdelay(30);	/* let the line settle even if it was not sampled */
+
 	nabu_pdc_restore();	/* config does not survive a deep sleep */
 	nabu_pdc_enable_pin(NABU_PDC_SPMI_PIN);
+	nabu_pwrkey_irq_on();
 	nabu_pwrkey_rearm();
 
 	/* nabu: diagnostics - which virq carries the SPMI summary */
@@ -156,9 +175,8 @@ static int nabu_suspend_enter(suspend_state_t state)
 		 * would, so the latch is acknowledged; restore the wakeup
 		 * bookkeeping the pm core would otherwise do at resume.
 		 */
-		irq = nabu_pdc_pin_irq(NABU_PDC_SPMI_PIN);
-		if (irq)
-			generic_handle_irq(irq);
+		/* drain the child only, never the chained parent (see above) */
+		nabu_pwrkey_drain();
 		nabu_suspend_mark(0x13);
 		nabu_suspend_word(0x5c, i);
 
