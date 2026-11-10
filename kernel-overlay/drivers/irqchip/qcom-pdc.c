@@ -8,6 +8,7 @@
 #include <linux/interrupt.h>
 #include <linux/irq.h>
 #include <linux/irqchip.h>
+#include <linux/syscore_ops.h>
 #include <linux/irqdomain.h>
 #include <linux/io.h>
 #include <linux/kernel.h>
@@ -59,6 +60,7 @@ static bool pdc_x1e_quirk;
 #define NABU_PDC_MAX_PIN	256
 static unsigned int nabu_pdc_pin_virq[NABU_PDC_MAX_PIN];
 
+
 static void pdc_base_reg_write(void __iomem *base, int reg, u32 i, u32 val)
 {
 	writel_relaxed(val, base + reg + i * sizeof(u32));
@@ -73,6 +75,80 @@ static u32 pdc_reg_read(int reg, u32 i)
 {
 	return readl_relaxed(pdc_base + reg + i * sizeof(u32));
 }
+
+/*
+ * nabu: the PDC configuration is lost when the always-on domain is power
+ * collapsed, exactly like on the vendor kernel (CONFIG_QTI_PDC_SAVE_RESTORE).
+ * The vendor saves the enable banks at suspend and restores the per pin
+ * configuration and the enables at resume; without that the second deep
+ * sleep can no longer be woken by a PMIC interrupt.
+ */
+#define NABU_PDC_ENABLE_REGS	(NABU_PDC_MAX_PIN / 32)
+static u32 nabu_pdc_enabled[NABU_PDC_ENABLE_REGS];
+static u32 nabu_pdc_cfg[NABU_PDC_MAX_PIN];
+static bool nabu_pdc_cfg_set[NABU_PDC_MAX_PIN];
+static bool nabu_pdc_saved;
+
+static void nabu_pdc_save(void)
+{
+	int i;
+
+	for (i = 0; i < NABU_PDC_ENABLE_REGS; i++)
+		nabu_pdc_enabled[i] = pdc_reg_read(IRQ_ENABLE_BANK, i);
+
+	nabu_pdc_saved = true;
+}
+
+void nabu_pdc_restore(void)
+{
+	int i;
+
+	if (!nabu_pdc_saved)
+		return;
+
+	for (i = 0; i < NABU_PDC_MAX_PIN; i++) {
+		u32 cfg;
+
+		if (!nabu_pdc_cfg_set[i])
+			continue;
+
+		pdc_reg_write(IRQ_i_CFG, i, nabu_pdc_cfg[i]);
+		cfg = pdc_reg_read(IRQ_i_CFG, i);
+		if (cfg != nabu_pdc_cfg[i])
+			pr_warn("nabu: PDC pin %d config did not stick\n", i);
+	}
+
+	for (i = 0; i < NABU_PDC_ENABLE_REGS; i++)
+		pdc_reg_write(IRQ_ENABLE_BANK, i, nabu_pdc_enabled[i]);
+}
+EXPORT_SYMBOL_GPL(nabu_pdc_restore);
+
+static int nabu_pdc_syscore_suspend(void *data)
+{
+	nabu_pdc_save();
+	return 0;
+}
+
+static void nabu_pdc_syscore_resume(void *data)
+{
+	nabu_pdc_restore();
+}
+
+static const struct syscore_ops nabu_pdc_syscore_ops = {
+	.suspend = nabu_pdc_syscore_suspend,
+	.resume = nabu_pdc_syscore_resume,
+};
+
+static struct syscore nabu_pdc_syscore = {
+	.ops = &nabu_pdc_syscore_ops,
+};
+
+static int __init nabu_pdc_syscore_init(void)
+{
+	register_syscore(&nabu_pdc_syscore);
+	return 0;
+}
+arch_initcall(nabu_pdc_syscore_init);
 
 static void pdc_x1e_irq_enable_write(u32 bank, u32 enable)
 {
@@ -247,6 +323,12 @@ static int qcom_pdc_gic_set_type(struct irq_data *d, unsigned int type)
 	old_pdc_type = pdc_reg_read(IRQ_i_CFG, d->hwirq);
 	pdc_type |= (old_pdc_type & ~IRQ_i_CFG_TYPE_MASK);
 	pdc_reg_write(IRQ_i_CFG, d->hwirq, pdc_type);
+
+	/* nabu: remember the programmed config, it does not survive the state */
+	if (d->hwirq < NABU_PDC_MAX_PIN) {
+		nabu_pdc_cfg[d->hwirq] = pdc_type;
+		nabu_pdc_cfg_set[d->hwirq] = true;
+	}
 
 	ret = irq_chip_set_type_parent(d, type);
 	if (ret)

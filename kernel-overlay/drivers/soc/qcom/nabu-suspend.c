@@ -44,6 +44,7 @@ extern unsigned int nabu_pwrkey_irq(void);
 /* PDC pin that carries the SPMI arbiter summary (all PMIC interrupts) */
 extern void nabu_pdc_enable_pin(int pin);
 extern unsigned int nabu_pdc_pin_irq(int pin);
+extern void nabu_pdc_restore(void);
 extern void nabu_suspend_word(u8 off, u32 v);
 #define NABU_PDC_SPMI_PIN	1
 
@@ -126,6 +127,7 @@ static int nabu_suspend_enter(suspend_state_t state)
 
 	/* the PMIC interrupts have to reach the PDC even though the IRQ core
 	 * disabled the (non wakeup) key interrupt at suspend */
+	nabu_pdc_restore();	/* config does not survive a deep sleep */
 	nabu_pdc_enable_pin(NABU_PDC_SPMI_PIN);
 	nabu_pwrkey_rearm();
 
@@ -160,6 +162,7 @@ static int nabu_suspend_enter(suspend_state_t state)
 		pm_wakeup_clear(0);
 
 		/* arm the key interrupt again for the next attempt */
+		nabu_pdc_restore();
 		nabu_pdc_enable_pin(NABU_PDC_SPMI_PIN);
 		nabu_pwrkey_rearm();
 		nabu_suspend_mark(0x14);
