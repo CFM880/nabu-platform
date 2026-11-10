@@ -146,7 +146,12 @@ static struct syscore nabu_pdc_syscore = {
 
 static int __init nabu_pdc_syscore_init(void)
 {
-	register_syscore(&nabu_pdc_syscore);
+	/*
+	 * nabu: disabled for the moment - restoring the saved enable banks
+	 * overwrites whatever the firmware left in them, which can disarm wake
+	 * sources the driver never touched.  Kept for reference; see
+	 * docs/port-6.18.md.
+	 */
 	return 0;
 }
 arch_initcall(nabu_pdc_syscore_init);
