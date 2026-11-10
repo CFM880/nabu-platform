@@ -23,7 +23,6 @@
  *
  * Details and measurements: nabu-linux-overlay/docs/port-6.18.md
  */
-#include <linux/cpu_pm.h>
 #include <linux/init.h>
 #include <linux/interrupt.h>
 #include <linux/kernel.h>
@@ -98,7 +97,7 @@ static int nabu_suspend_enter(suspend_state_t state)
 {
 	u64 start, settle;
 	unsigned int irq;
-	int ret, i;
+	int i;
 
 	if (!psci_ops.cpu_suspend)
 		return -EOPNOTSUPP;
@@ -106,17 +105,12 @@ static int nabu_suspend_enter(suspend_state_t state)
 	nabu_suspend_mark(0x10);
 
 	/*
-	 * Announce that this CPU is going down.  With the secondary CPUs
-	 * already offlined by the PM core this makes the RPMh RSC driver
-	 * flush its cached sleep/wake votes, which is what the vendor's
-	 * system_pm driver does before entering the state.
+	 * cpu_pm_enter()/cpu_cluster_pm_enter() are deliberately not called
+	 * here: the PM core does exactly that in its own syscore callbacks
+	 * (cpu_pm_suspend/cpu_pm_resume) before and after .enter().  A second
+	 * cpu_pm_enter() flushes the RPMh sleep/wake sets twice and unbalances
+	 * the RSC's cpus_in_pm counter, which deadlocks the next flush.
 	 */
-	ret = cpu_pm_enter();
-	if (ret)
-		return ret;
-
-	/* the vendor cluster_notify() does this for is_reset levels */
-	cpu_cluster_pm_enter();
 
 	/*
 	 * Timekeeping is suspended while .enter() runs, so ktime_get() is not
@@ -172,8 +166,6 @@ static int nabu_suspend_enter(suspend_state_t state)
 	nabu_suspend_mark(i < NABU_MAX_ATTEMPTS ? 0x20 : 0x21);
 	nabu_suspend_word(0x5c, i);
 	nabu_suspend_mark(0x15);
-	cpu_cluster_pm_exit();
-	cpu_pm_exit();
 	nabu_suspend_mark(0x16);
 
 	return 0;
