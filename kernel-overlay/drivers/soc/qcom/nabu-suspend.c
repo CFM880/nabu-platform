@@ -46,7 +46,9 @@ static int nabu_suspend_enter(suspend_state_t state)
 	 * of these blocks here is unsafe: the PMIC/SMPI access can stall and
 	 * the PDC is behind a clock gate by now, so a write can be dropped.
 	 */
+	pr_info("nabu: entering PSCI %#x\n", NABU_PSCI_SUSPEND_STATE);
 	psci_cpu_suspend_enter(NABU_PSCI_SUSPEND_STATE);
+	pr_info("nabu: PSCI returned\n");
 
 	return 0;
 }
