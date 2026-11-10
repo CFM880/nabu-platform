@@ -29,6 +29,7 @@
 #include <linux/kernel.h>
 #include <linux/psci.h>
 #include <linux/suspend.h>
+#include <linux/syscore_ops.h>
 #include <clocksource/arm_arch_timer.h>
 
 #define NABU_PSCI_SUSPEND_STATE	0x4100c244
@@ -44,6 +45,41 @@ extern unsigned int nabu_pwrkey_irq(void);
 extern void nabu_pdc_enable_pin(int pin);
 extern unsigned int nabu_pdc_pin_irq(int pin);
 #define NABU_PDC_SPMI_PIN	1
+
+/*
+ * Phase markers, so a hang can be located after the fact: the PM8150 SDAM
+ * byte survives a reset while the kernel log of the failed suspend does not.
+ *   0x08  PM_SUSPEND_PREPARE (userspace not frozen yet)
+ *   0x09  syscore suspend (devices suspended, interrupts off)
+ *   0x10  .enter() reached
+ *   0x11  entering the PSCI state      0x12  back from it
+ */
+static int nabu_pm_notify(struct notifier_block *nb, unsigned long action,
+			  void *data)
+{
+	if (action == PM_SUSPEND_PREPARE)
+		nabu_suspend_mark(0x08);
+
+	return NOTIFY_DONE;
+}
+
+static struct notifier_block nabu_pm_nb = {
+	.notifier_call = nabu_pm_notify,
+};
+
+static int nabu_syscore_suspend(void *data)
+{
+	nabu_suspend_mark(0x09);
+	return 0;
+}
+
+static const struct syscore_ops nabu_syscore_ops = {
+	.suspend = nabu_syscore_suspend,
+};
+
+static struct syscore nabu_syscore = {
+	.ops = &nabu_syscore_ops,
+};
 
 static int nabu_suspend_enter(suspend_state_t state)
 {
@@ -126,6 +162,8 @@ static int __init nabu_suspend_init(void)
 	if (!psci_ops.cpu_suspend)
 		return -ENODEV;
 
+	register_pm_notifier(&nabu_pm_nb);
+	register_syscore(&nabu_syscore);
 	suspend_set_ops(&nabu_suspend_ops);
 	pr_info("nabu: platform mem suspend registered (PSCI %#x)\n",
 		NABU_PSCI_SUSPEND_STATE);

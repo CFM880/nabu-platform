@@ -301,6 +301,9 @@ static int pm8941_pwrkey_suspend(struct device *dev)
 	if (!device_may_wakeup(dev))
 		return 0;
 
+	/* nabu: marker 0x07, the device suspend phase reached the PMIC */
+	nabu_suspend_mark(0x07);
+
 	/*
 	 * nabu: a platform "mem" suspend is woken by the key IRQ itself; do
 	 * not mask it, the PMIC transient only costs one retry (see
