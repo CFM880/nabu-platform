@@ -378,6 +378,14 @@ void nabu_pwrkey_rearm(void)
 	/* force the chip's set_wake() to run again */
 	disable_irq_wake(nabu_pwrkey->irq);
 	enable_irq_wake(nabu_pwrkey->irq);
+
+	/*
+	 * The IRQ core masks the PON interrupt in the PMIC (QPNPINT EN_CLR)
+	 * when it reports the wakeup; make sure it is enabled again, or the
+	 * next entry cannot be woken by the key at all (the charger IRQ,
+	 * which is never disabled, still wakes it).
+	 */
+	pm8941_pwrkey_mask(nabu_pwrkey, false);
 }
 EXPORT_SYMBOL_GPL(nabu_pwrkey_rearm);
 
