@@ -84,6 +84,12 @@ static u32 pdc_reg_read(int reg, u32 i)
  * sleep can no longer be woken by a PMIC interrupt.
  */
 #define NABU_PDC_ENABLE_REGS	(NABU_PDC_MAX_PIN / 32)
+/*
+ * Software shadow of the enable banks: the registers cannot be read in the
+ * syscore phase, the PDC clock/power domain is already off there and the
+ * MMIO access stalls the bus (measured).  __pdc_enable_intr() mirrors every
+ * write here instead.
+ */
 static u32 nabu_pdc_enabled[NABU_PDC_ENABLE_REGS];
 static u32 nabu_pdc_cfg[NABU_PDC_MAX_PIN];
 static bool nabu_pdc_cfg_set[NABU_PDC_MAX_PIN];
@@ -91,11 +97,6 @@ static bool nabu_pdc_saved;
 
 static void nabu_pdc_save(void)
 {
-	int i;
-
-	for (i = 0; i < NABU_PDC_ENABLE_REGS; i++)
-		nabu_pdc_enabled[i] = pdc_reg_read(IRQ_ENABLE_BANK, i);
-
 	nabu_pdc_saved = true;
 }
 
@@ -195,10 +196,20 @@ static void __pdc_enable_intr(int pin_out, bool on)
 			pdc_x1e_irq_enable_write(index, enable);
 		else
 			pdc_reg_write(IRQ_ENABLE_BANK, index, enable);
+
+		/* nabu: mirror for the suspend restore */
+		if (index < NABU_PDC_ENABLE_REGS)
+			nabu_pdc_enabled[index] = enable;
 	} else {
 		enable = pdc_reg_read(IRQ_i_CFG, pin_out);
 		__assign_bit(IRQ_i_CFG_IRQ_ENABLE, &enable, on);
 		pdc_reg_write(IRQ_i_CFG, pin_out, enable);
+
+		/* nabu: here the enable bit lives in the config register */
+		if (pin_out < NABU_PDC_MAX_PIN) {
+			nabu_pdc_cfg[pin_out] = enable;
+			nabu_pdc_cfg_set[pin_out] = true;
+		}
 	}
 }
 
