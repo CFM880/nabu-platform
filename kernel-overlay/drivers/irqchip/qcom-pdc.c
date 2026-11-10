@@ -100,20 +100,12 @@ static void nabu_pdc_save(void)
 	nabu_pdc_saved = true;
 }
 
-/* the SPMI arbiter summary line is a level line (see the spmi node's
- * interrupts-extended); PDC_LEVEL_HIGH makes the PDC latch it even when the
- * line is already asserted at the moment the state is entered, which
- * PDC_EDGE_DUAL (the reset value) cannot do */
-#define NABU_PDC_SPMI_PIN	1
-
 void nabu_pdc_restore(void)
 {
 	int i;
 
 	if (!nabu_pdc_saved)
 		return;
-
-	pdc_reg_write(IRQ_i_CFG, NABU_PDC_SPMI_PIN, PDC_LEVEL_HIGH);
 
 	for (i = 0; i < NABU_PDC_MAX_PIN; i++) {
 		u32 cfg;
