@@ -369,15 +369,46 @@ void nabu_suspend_mark(u8 v)
 }
 EXPORT_SYMBOL_GPL(nabu_suspend_mark);
 
-/* nabu: re-arm the key wakeup for a platform mem suspend entry */
-void nabu_pwrkey_rearm(void)
+/* nabu: virq of the power key, used by the platform mem suspend driver */
+unsigned int nabu_pwrkey_irq(void)
+{
+	return nabu_pwrkey ? nabu_pwrkey->irq : 0;
+}
+EXPORT_SYMBOL_GPL(nabu_pwrkey_irq);
+
+/*
+ * nabu: the press that ends a platform mem suspend is a real press and has to
+ * reach userspace, or the SoC resumes but the screen stays dark.
+ */
+void nabu_pwrkey_allow_wake(void)
 {
 	if (!nabu_pwrkey)
 		return;
 
-	/* force the chip's set_wake() to run again */
-	disable_irq_wake(nabu_pwrkey->irq);
-	enable_irq_wake(nabu_pwrkey->irq);
+	nabu_pwrkey->suspended = false;
+	nabu_pwrkey->swallow_release = false;
+	nabu_pwrkey->drop_until = 0;
+}
+EXPORT_SYMBOL_GPL(nabu_pwrkey_allow_wake);
+
+/* nabu: re-arm the key wakeup for a platform mem suspend entry */
+void nabu_pwrkey_rearm(void)
+{
+	static bool wake_armed;
+	int ret;
+
+	if (!nabu_pwrkey)
+		return;
+
+	/* force the chip's set_wake() to run again; only drop the reference we
+	 * took ourselves, wake_depth is also held by the driver's suspend */
+	if (wake_armed)
+		disable_irq_wake(nabu_pwrkey->irq);
+	ret = enable_irq_wake(nabu_pwrkey->irq);
+	wake_armed = !ret;
+	if (ret)
+		pr_info("nabu: pwrkey irq %u: enable_irq_wake failed (%d)\n",
+			nabu_pwrkey->irq, ret);
 
 	/*
 	 * The IRQ core masks the PON interrupt in the PMIC (QPNPINT EN_CLR)

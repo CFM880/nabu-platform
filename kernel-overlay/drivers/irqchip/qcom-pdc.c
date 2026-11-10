@@ -54,6 +54,11 @@ static int pdc_region_cnt;
 static unsigned int pdc_version;
 static bool pdc_x1e_quirk;
 
+/* nabu: virq of each PDC pin, so the mem suspend driver can dispatch the
+ * chained SPMI summary line itself (it runs with interrupts off) */
+#define NABU_PDC_MAX_PIN	256
+static unsigned int nabu_pdc_pin_virq[NABU_PDC_MAX_PIN];
+
 static void pdc_base_reg_write(void __iomem *base, int reg, u32 i, u32 val)
 {
 	writel_relaxed(val, base + reg + i * sizeof(u32));
@@ -139,11 +144,29 @@ void nabu_pdc_enable_pin(int pin)
 {
 	unsigned long flags;
 
+	if (pin < 0 || pin >= NABU_PDC_MAX_PIN)
+		return;
+
 	raw_spin_lock_irqsave(&pdc_lock, flags);
 	__pdc_enable_intr(pin, true);
 	raw_spin_unlock_irqrestore(&pdc_lock, flags);
 }
 EXPORT_SYMBOL_GPL(nabu_pdc_enable_pin);
+
+/*
+ * nabu_pdc_pin_irq - virq mapped to a PDC pin, 0 if the pin is unused.
+ *
+ * The mem suspend driver dispatches the chained SPMI summary interrupt by
+ * hand to clear a latched PMIC event while interrupts are off.
+ */
+unsigned int nabu_pdc_pin_irq(int pin)
+{
+	if (pin < 0 || pin >= NABU_PDC_MAX_PIN)
+		return 0;
+
+	return nabu_pdc_pin_virq[pin];
+}
+EXPORT_SYMBOL_GPL(nabu_pdc_pin_irq);
 
 static void qcom_pdc_gic_disable(struct irq_data *d)
 {
@@ -297,6 +320,9 @@ static int qcom_pdc_alloc(struct irq_domain *domain, unsigned int virq,
 					    &qcom_pdc_gic_chip, NULL);
 	if (ret)
 		return ret;
+
+	if (hwirq < NABU_PDC_MAX_PIN)	/* nabu: see nabu_pdc_pin_irq() */
+		nabu_pdc_pin_virq[hwirq] = virq;
 
 	region = get_pin_region(hwirq);
 	if (!region)
