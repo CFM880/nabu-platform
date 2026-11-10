@@ -942,6 +942,12 @@ void pm_system_irq_wakeup(unsigned int irq_number)
 
 	pm_pr_dbg("Triggering wakeup from IRQ %d\n", irq_number);
 
+	/* nabu: name the IRQ that aborts a suspend, pm_debug_messages is not
+	 * always on when this happens */
+	if (system_state != SYSTEM_RUNNING)
+		pr_info("nabu: wakeup irq %u aborts suspend (state %d)\n",
+			irq_number, system_state);
+
 	raw_spin_unlock_irqrestore(&wakeup_irq_lock, flags);
 
 	if (irq_number)
