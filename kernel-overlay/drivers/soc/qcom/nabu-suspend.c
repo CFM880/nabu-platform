@@ -35,6 +35,9 @@
 /* nabu: black-box markers in PM8150 SDAM, see pm8941-pwrkey.c */
 extern void nabu_suspend_mark(u8 v);
 extern void nabu_pwrkey_rearm(void);
+/* PDC pin that carries the SPMI arbiter summary (all PMIC interrupts) */
+extern void nabu_pdc_enable_pin(int pin);
+#define NABU_PDC_SPMI_PIN	1
 
 static int nabu_suspend_enter(suspend_state_t state)
 {
@@ -75,6 +78,7 @@ static int nabu_suspend_enter(suspend_state_t state)
 		 * IRQ, which was never disabled, still can).
 		 */
 		resume_device_irqs();
+		nabu_pdc_enable_pin(NABU_PDC_SPMI_PIN);
 		nabu_pwrkey_rearm();
 		nabu_suspend_mark(0x11);
 
