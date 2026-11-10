@@ -388,6 +388,20 @@ void nabu_suspend_mark(u8 v)
 }
 EXPORT_SYMBOL_GPL(nabu_suspend_mark);
 
+/* nabu: write a 32 bit value to the SDAM ring area byte by byte */
+void nabu_suspend_word(u8 off, u32 v)
+{
+	int i;
+
+	if (!nabu_pwrkey)
+		return;
+
+	for (i = 0; i < 4; i++)
+		regmap_write(nabu_pwrkey->regmap, 0xb100 + off + i,
+			     (v >> (8 * i)) & 0xff);
+}
+EXPORT_SYMBOL_GPL(nabu_suspend_word);
+
 /* nabu: virq of the power key, used by the platform mem suspend driver */
 unsigned int nabu_pwrkey_irq(void)
 {

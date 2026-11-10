@@ -44,6 +44,7 @@ extern unsigned int nabu_pwrkey_irq(void);
 /* PDC pin that carries the SPMI arbiter summary (all PMIC interrupts) */
 extern void nabu_pdc_enable_pin(int pin);
 extern unsigned int nabu_pdc_pin_irq(int pin);
+extern void nabu_suspend_word(u8 off, u32 v);
 #define NABU_PDC_SPMI_PIN	1
 
 /*
@@ -128,6 +129,9 @@ static int nabu_suspend_enter(suspend_state_t state)
 	nabu_pdc_enable_pin(NABU_PDC_SPMI_PIN);
 	nabu_pwrkey_rearm();
 
+	/* nabu: diagnostics - which virq carries the SPMI summary */
+	nabu_suspend_word(0x50, nabu_pdc_pin_irq(NABU_PDC_SPMI_PIN));
+
 	for (i = 0; i < NABU_MAX_ATTEMPTS; i++) {
 		nabu_suspend_mark(0x11);
 		psci_cpu_suspend_enter(NABU_PSCI_SUSPEND_STATE);
@@ -150,6 +154,7 @@ static int nabu_suspend_enter(suspend_state_t state)
 		if (irq)
 			generic_handle_irq(irq);
 		nabu_suspend_mark(0x13);
+		nabu_suspend_word(0x5c, i);
 
 		rearm_wake_irq(nabu_pwrkey_irq());
 		pm_wakeup_clear(0);
@@ -160,6 +165,9 @@ static int nabu_suspend_enter(suspend_state_t state)
 		nabu_suspend_mark(0x14);
 	}
 
+	/* nabu: exit reason, 0x20 = settled, 0x21 = attempts used up */
+	nabu_suspend_mark(i < NABU_MAX_ATTEMPTS ? 0x20 : 0x21);
+	nabu_suspend_word(0x5c, i);
 	nabu_suspend_mark(0x15);
 	cpu_cluster_pm_exit();
 	cpu_pm_exit();
