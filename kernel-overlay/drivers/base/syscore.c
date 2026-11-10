@@ -110,7 +110,6 @@ EXPORT_SYMBOL_GPL(syscore_suspend);
 void syscore_resume(void)
 {
 	struct syscore *syscore;
-	u8 idx = 0;
 
 	trace_suspend_resume(TPS("syscore_resume"), 0, true);
 	WARN_ONCE(!irqs_disabled(),
@@ -118,16 +117,12 @@ void syscore_resume(void)
 
 	list_for_each_entry(syscore, &syscore_list, node)
 		if (syscore->ops->resume) {
-			nabu_suspend_mark(0x40 + (idx & 0x1f));
 			pm_pr_dbg("Calling %pS\n", syscore->ops->resume);
 			syscore->ops->resume(syscore->data);
-			nabu_suspend_mark(0x60 + (idx & 0x1f));
-			idx++;
 			WARN_ONCE(!irqs_disabled(),
 				"Interrupts enabled after %pS\n",
 				syscore->ops->resume);
 		}
-	nabu_suspend_mark(0x7f);
 	trace_suspend_resume(TPS("syscore_resume"), 0, false);
 }
 EXPORT_SYMBOL_GPL(syscore_resume);
