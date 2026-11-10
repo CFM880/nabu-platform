@@ -31,12 +31,7 @@
 
 #define NABU_PSCI_SUSPEND_STATE	0x4100c244
 
-extern void nabu_pdc_restore(void);
-extern void nabu_pdc_enable_pin(int pin);
 extern void nabu_suspend_mark(u8 v);
-
-/* PDC pin that carries the SPMI arbiter summary (all PMIC interrupts) */
-#define NABU_PDC_SPMI_PIN	1
 
 static int nabu_suspend_enter(suspend_state_t state)
 {
@@ -44,13 +39,13 @@ static int nabu_suspend_enter(suspend_state_t state)
 		return -EOPNOTSUPP;
 
 	/*
-	 * The PDC configuration does not survive the AOSS sleep and the pin
-	 * must be enabled for the PMIC interrupts to wake us.  These are MMIO
-	 * accesses to the always-on block, which are safe here.
+	 * Nothing but the PSCI call, like the vendor's from_idle=false path:
+	 * the key interrupt and the PDC pin are armed during the device
+	 * suspend phase and the PDC configuration is restored by the syscore
+	 * resume callback, because it is lost across the sleep.  Touching any
+	 * of these blocks here is unsafe: the PMIC/SMPI access can stall and
+	 * the PDC is behind a clock gate by now, so a write can be dropped.
 	 */
-	nabu_pdc_restore();
-	nabu_pdc_enable_pin(NABU_PDC_SPMI_PIN);
-
 	psci_cpu_suspend_enter(NABU_PSCI_SUSPEND_STATE);
 
 	return 0;
