@@ -365,13 +365,26 @@ static DEFINE_SIMPLE_DEV_PM_OPS(pm8941_pwr_key_pm_ops,
 				pm8941_pwrkey_suspend, pm8941_pwrkey_resume);
 
 #define NABU_SDAM_MARK_REG	0xb17e
+/*
+ * nabu: the suspend path is debugged from the SDAM because the kernel log of
+ * a failed suspend dies with the reset.  Keep the last 16 marks in a ring so
+ * the sequence (and not just the last step) survives.
+ */
+#define NABU_SDAM_RING_REG	0xb160
+#define NABU_SDAM_RING_LEN	16
 
 static struct pm8941_pwrkey *nabu_pwrkey;
 
 void nabu_suspend_mark(u8 v)
 {
-	if (nabu_pwrkey)
-		regmap_write(nabu_pwrkey->regmap, NABU_SDAM_MARK_REG, v);
+	static u8 idx;
+
+	if (!nabu_pwrkey)
+		return;
+
+	regmap_write(nabu_pwrkey->regmap, NABU_SDAM_MARK_REG, v);
+	regmap_write(nabu_pwrkey->regmap,
+		     NABU_SDAM_RING_REG + (idx++ % NABU_SDAM_RING_LEN), v);
 }
 EXPORT_SYMBOL_GPL(nabu_suspend_mark);
 
