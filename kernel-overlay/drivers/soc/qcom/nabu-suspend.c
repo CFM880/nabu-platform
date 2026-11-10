@@ -44,6 +44,10 @@ extern unsigned int nabu_pwrkey_irq(void);
 extern void nabu_pdc_enable_pin(int pin);
 extern unsigned int nabu_pdc_pin_irq(int pin);
 extern void nabu_pdc_restore(void);
+extern u32 nabu_pdc_pin_cfg(int pin);
+extern u32 nabu_pdc_pin_enabled(int pin);
+extern u32 nabu_pwrkey_en(void);
+extern u32 nabu_pwrkey_latched(void);
 extern void nabu_suspend_word(u8 off, u32 v);
 #define NABU_PDC_SPMI_PIN	1
 
@@ -129,6 +133,12 @@ static int nabu_suspend_enter(suspend_state_t state)
 	nabu_suspend_word(0x50, nabu_pdc_pin_irq(NABU_PDC_SPMI_PIN));
 
 	for (i = 0; i < NABU_MAX_ATTEMPTS; i++) {
+		/* nabu: state of the wake sources at the moment of entry */
+		nabu_suspend_word(0x40, nabu_pwrkey_en());
+		nabu_suspend_word(0x44, nabu_pwrkey_latched());
+		nabu_suspend_word(0x48, nabu_pdc_pin_cfg(NABU_PDC_SPMI_PIN));
+		nabu_suspend_word(0x4c, nabu_pdc_pin_enabled(NABU_PDC_SPMI_PIN));
+
 		nabu_suspend_mark(0x11);
 		psci_cpu_suspend_enter(NABU_PSCI_SUSPEND_STATE);
 		nabu_suspend_mark(0x12);

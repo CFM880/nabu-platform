@@ -246,6 +246,22 @@ EXPORT_SYMBOL_GPL(nabu_pdc_enable_pin);
  * The mem suspend driver dispatches the chained SPMI summary interrupt by
  * hand to clear a latched PMIC event while interrupts are off.
  */
+u32 nabu_pdc_pin_cfg(int pin)
+{
+	return (pin >= 0 && pin < NABU_PDC_MAX_PIN) ? nabu_pdc_cfg[pin] : 0;
+}
+EXPORT_SYMBOL_GPL(nabu_pdc_pin_cfg);
+
+u32 nabu_pdc_pin_enabled(int pin)
+{
+	if (pin < 0 || pin >= NABU_PDC_MAX_PIN)
+		return 0;
+	if (pdc_version < PDC_VERSION_3_2)
+		return !!(nabu_pdc_enabled[pin / 32] & BIT(pin % 32));
+	return !!(nabu_pdc_cfg[pin] & BIT(IRQ_i_CFG_IRQ_ENABLE));
+}
+EXPORT_SYMBOL_GPL(nabu_pdc_pin_enabled);
+
 unsigned int nabu_pdc_pin_irq(int pin)
 {
 	if (pin < 0 || pin >= NABU_PDC_MAX_PIN)

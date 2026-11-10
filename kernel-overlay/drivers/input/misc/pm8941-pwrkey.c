@@ -424,6 +424,29 @@ void nabu_pwrkey_allow_wake(void)
 }
 EXPORT_SYMBOL_GPL(nabu_pwrkey_allow_wake);
 
+/* nabu: PON interrupt enable / latched state, for the SDAM black box */
+u32 nabu_pwrkey_en(void)
+{
+	u32 v = 0;
+
+	if (nabu_pwrkey)
+		regmap_read(nabu_pwrkey->regmap,
+			    nabu_pwrkey->baseaddr + PON_INT_EN_SET, &v);
+	return v;
+}
+EXPORT_SYMBOL_GPL(nabu_pwrkey_en);
+
+u32 nabu_pwrkey_latched(void)
+{
+	u32 v = 0;
+
+	if (nabu_pwrkey)
+		regmap_read(nabu_pwrkey->regmap,
+			    nabu_pwrkey->baseaddr + 0x11 /* LATCHED_STS */, &v);
+	return v;
+}
+EXPORT_SYMBOL_GPL(nabu_pwrkey_latched);
+
 /* nabu: re-arm the key wakeup for a platform mem suspend entry */
 void nabu_pwrkey_rearm(void)
 {
