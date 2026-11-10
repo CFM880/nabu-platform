@@ -53,12 +53,17 @@ extern unsigned int nabu_pdc_pin_irq(int pin);
  *   0x09  syscore suspend (devices suspended, interrupts off)
  *   0x10  .enter() reached
  *   0x11  entering the PSCI state      0x12  back from it
+ *   0x13  latched event drained        0x14  retry re-armed
+ *   0x15  retry loop finished          0x16  .enter() about to return
+ *   0x17  syscore resumed              0x18  PM_POST_SUSPEND
  */
 static int nabu_pm_notify(struct notifier_block *nb, unsigned long action,
 			  void *data)
 {
 	if (action == PM_SUSPEND_PREPARE)
 		nabu_suspend_mark(0x08);
+	else if (action == PM_POST_SUSPEND)
+		nabu_suspend_mark(0x18);
 
 	return NOTIFY_DONE;
 }
@@ -73,8 +78,14 @@ static int nabu_syscore_suspend(void *data)
 	return 0;
 }
 
+static void nabu_syscore_resume(void *data)
+{
+	nabu_suspend_mark(0x17);
+}
+
 static const struct syscore_ops nabu_syscore_ops = {
 	.suspend = nabu_syscore_suspend,
+	.resume = nabu_syscore_resume,
 };
 
 static struct syscore nabu_syscore = {
@@ -138,16 +149,21 @@ static int nabu_suspend_enter(suspend_state_t state)
 		irq = nabu_pdc_pin_irq(NABU_PDC_SPMI_PIN);
 		if (irq)
 			generic_handle_irq(irq);
+		nabu_suspend_mark(0x13);
+
 		rearm_wake_irq(nabu_pwrkey_irq());
 		pm_wakeup_clear(0);
 
 		/* arm the key interrupt again for the next attempt */
 		nabu_pdc_enable_pin(NABU_PDC_SPMI_PIN);
 		nabu_pwrkey_rearm();
+		nabu_suspend_mark(0x14);
 	}
 
+	nabu_suspend_mark(0x15);
 	cpu_cluster_pm_exit();
 	cpu_pm_exit();
+	nabu_suspend_mark(0x16);
 
 	return 0;
 }

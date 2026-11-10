@@ -342,6 +342,9 @@ static int pm8941_pwrkey_resume(struct device *dev)
 {
 	struct pm8941_pwrkey *pwrkey = dev_get_drvdata(dev);
 
+	/* nabu: marker 0x19, the resume phase reached the PMIC */
+	nabu_suspend_mark(0x19);
+
 	if (pwrkey->suspend_mask_ms) {
 		timer_delete_sync(&pwrkey->unmask_timer);
 		if (pwrkey->irq_masked)
