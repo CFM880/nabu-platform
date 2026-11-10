@@ -24,31 +24,56 @@
  * Details and measurements: nabu-linux-overlay/docs/port-6.18.md
  */
 #include <linux/init.h>
+#include <linux/irqflags.h>
 #include <linux/kernel.h>
 #include <linux/psci.h>
 #include <linux/suspend.h>
 #include <linux/syscore_ops.h>
+#include <clocksource/arm_arch_timer.h>
 
 #define NABU_PSCI_SUSPEND_STATE	0x4100c244
 
 extern void nabu_suspend_mark(u8 v);
 
+#define NABU_SETTLE_MS	2000
+
 static int nabu_suspend_enter(suspend_state_t state)
 {
+	u64 settle, start;
+	int i;
+
 	if (!psci_ops.cpu_suspend)
 		return -EOPNOTSUPP;
 
 	/*
-	 * Nothing but the PSCI call, like the vendor's from_idle=false path:
-	 * the key interrupt and the PDC pin are armed during the device
-	 * suspend phase and the PDC configuration is restored by the syscore
-	 * resume callback, because it is lost across the sleep.  Touching any
-	 * of these blocks here is unsafe: the PMIC/SMPI access can stall and
-	 * the PDC is behind a clock gate by now, so a write can be dropped.
+	 * PSCI returns immediately while any interrupt is pending at the GIC,
+	 * and the SPMI arbiter summary is a chained interrupt, so
+	 * suspend_device_irqs() never masks or synchronises it: a single
+	 * latched PMIC event (a power on key event from boot, an RTC alarm,
+	 * the key release of the press that requested the suspend) keeps the
+	 * line asserted and the AOSS state is never entered.
+	 *
+	 * Let the interrupt path run once before each attempt so the PMIC
+	 * latch and the arbiter status are acknowledged the normal way (the
+	 * generic chained flow, not a hand made EOI), and retry until the
+	 * state really sticks.  No PMIC/SDAM access is made here: the bus is
+	 * partly gated at this point and a transaction can stall.
 	 */
-	pr_info("nabu: entering PSCI %#x\n", NABU_PSCI_SUSPEND_STATE);
-	psci_cpu_suspend_enter(NABU_PSCI_SUSPEND_STATE);
-	pr_info("nabu: PSCI returned\n");
+	settle = (u64)arch_timer_get_rate() * NABU_SETTLE_MS / 1000;
+
+	for (i = 0; i < 8; i++) {
+		local_irq_enable();
+		cpu_relax();
+		local_irq_disable();
+
+		start = arch_timer_read_counter();
+		pr_info("nabu: entry attempt %d\n", i);
+		psci_cpu_suspend_enter(NABU_PSCI_SUSPEND_STATE);
+		pr_info("nabu: attempt %d returned after %llu us\n", i,
+			arch_timer_read_counter() - start);
+		if (arch_timer_read_counter() - start > settle)
+			break;
+	}
 
 	return 0;
 }
