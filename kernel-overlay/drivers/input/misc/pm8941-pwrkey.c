@@ -294,6 +294,24 @@ static void pm8941_pwrkey_unmask(struct timer_list *t)
 	dev_dbg(pwrkey->dev, "key IRQ unmasked, RT_STS=0x%x\n", sts);
 }
 
+/*
+ * nabu: runs after suspend_device_irqs() has disabled (masked) the key
+ * interrupt because it is not a wakeup source, i.e. after our .suspend
+ * armed it.  Arm the PMIC again so the key can wake the platform entry.
+ */
+static int pm8941_pwrkey_suspend_noirq(struct device *dev)
+{
+	struct pm8941_pwrkey *pwrkey = dev_get_drvdata(dev);
+
+	if (pm_suspend_target_state != PM_SUSPEND_MEM || !device_may_wakeup(dev))
+		return 0;
+
+	pm8941_pwrkey_mask(pwrkey, false);
+	pr_info("nabu: pwrkey re-armed in noirq\n");
+
+	return 0;
+}
+
 static int pm8941_pwrkey_suspend(struct device *dev)
 {
 	struct pm8941_pwrkey *pwrkey = dev_get_drvdata(dev);
@@ -322,6 +340,8 @@ static int pm8941_pwrkey_suspend(struct device *dev)
 		 * runs.  The bus is fine at this point.
 		 */
 		pm8941_pwrkey_mask(pwrkey, false);
+		pr_info("nabu: pwrkey wake arm ret=%d in .suspend\n",
+			enable_irq_wake(pwrkey->irq));
 		return 0;
 	}
 
@@ -368,8 +388,11 @@ static int pm8941_pwrkey_resume(struct device *dev)
 	return 0;
 }
 
-static DEFINE_SIMPLE_DEV_PM_OPS(pm8941_pwr_key_pm_ops,
-				pm8941_pwrkey_suspend, pm8941_pwrkey_resume);
+static const struct dev_pm_ops pm8941_pwr_key_pm_ops = {
+	.suspend = pm8941_pwrkey_suspend,
+	.suspend_noirq = pm8941_pwrkey_suspend_noirq,
+	.resume = pm8941_pwrkey_resume,
+};
 
 #define NABU_SDAM_MARK_REG	0xb17e
 /*
