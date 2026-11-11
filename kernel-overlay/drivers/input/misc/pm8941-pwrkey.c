@@ -307,7 +307,6 @@ static int pm8941_pwrkey_suspend_noirq(struct device *dev)
 		return 0;
 
 	pm8941_pwrkey_mask(pwrkey, false);
-	pr_info("nabu: pwrkey re-armed in noirq\n");
 
 	return 0;
 }

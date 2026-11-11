@@ -85,10 +85,7 @@ static int nabu_suspend_enter(suspend_state_t state)
 		local_irq_disable();
 
 		t = arch_timer_read_counter();
-		pr_info("nabu: entry attempt %d\n", i);
 		psci_cpu_suspend_enter(NABU_PSCI_SUSPEND_STATE);
-		pr_info("nabu: attempt %d returned after %llu us\n", i,
-			arch_timer_read_counter() - t);
 
 		if (arch_timer_read_counter() - t > settle)
 			break;			/* real wakeup */
