@@ -35,6 +35,7 @@
 #define NABU_PSCI_SUSPEND_STATE	0x4100c244
 
 extern void nabu_suspend_mark(u8 v);
+extern void nabu_pwrkey_allow_wake(void);
 
 #define NABU_SETTLE_MS	2000	/* longer than this: a real wakeup */
 #define NABU_WINDOW_MS	1500	/* only retry inside this window */
@@ -104,6 +105,26 @@ static const struct platform_suspend_ops nabu_suspend_ops = {
 	.enter = nabu_suspend_enter,
 };
 
+/*
+ * The press that ends the platform suspend must reach userspace, otherwise
+ * the SoC resumes but the display stays off and the tablet looks dead.  The
+ * pending key interrupt is handled right after arch_suspend_enable_irqs(),
+ * i.e. before the pwrkey device resumes, so clear its "suspended" flag from
+ * the syscore phase.  This only touches driver state, no PMIC access.
+ */
+static void nabu_syscore_resume(void *data)
+{
+	nabu_pwrkey_allow_wake();
+}
+
+static const struct syscore_ops nabu_syscore_ops = {
+	.resume = nabu_syscore_resume,
+};
+
+static struct syscore nabu_syscore = {
+	.ops = &nabu_syscore_ops,
+};
+
 /* phase marker, written from the PM notifier (healthy SPMI bus) */
 static int nabu_pm_notify(struct notifier_block *nb, unsigned long action,
 			  void *data)
@@ -123,6 +144,7 @@ static int __init nabu_suspend_init(void)
 	if (!psci_ops.cpu_suspend)
 		return -ENODEV;
 
+	register_syscore(&nabu_syscore);
 	register_pm_notifier(&nabu_pm_nb);
 	suspend_set_ops(&nabu_suspend_ops);
 	pr_info("nabu: platform mem suspend registered (PSCI %#x)\n",
