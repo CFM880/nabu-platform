@@ -23,6 +23,7 @@
  *
  * Details and measurements: nabu-linux-overlay/docs/port-6.18.md
  */
+#include <linux/delay.h>
 #include <linux/init.h>
 #include <linux/irqflags.h>
 #include <linux/kernel.h>
@@ -61,11 +62,17 @@ static int nabu_suspend_enter(suspend_state_t state)
 	 */
 	settle = (u64)arch_timer_get_rate() * NABU_SETTLE_MS / 1000;
 
-	for (i = 0; i < 8; i++) {
-		local_irq_enable();
-		cpu_relax();
-		local_irq_disable();
+	/*
+	 * The pending event is acknowledged exactly once, before the first
+	 * attempt: doing that between attempts would consume a real key
+	 * press (the handler swallows it while suspended) and the system
+	 * would sleep again with nothing left to wake it.
+	 */
+	local_irq_enable();
+	cpu_relax();
+	local_irq_disable();
 
+	for (i = 0; i < 10; i++) {
 		start = arch_timer_read_counter();
 		pr_info("nabu: entry attempt %d\n", i);
 		psci_cpu_suspend_enter(NABU_PSCI_SUSPEND_STATE);
@@ -73,6 +80,10 @@ static int nabu_suspend_enter(suspend_state_t state)
 			arch_timer_read_counter() - start);
 		if (arch_timer_read_counter() - start > settle)
 			break;
+
+		/* a still asserted PMIC line keeps the PSCI from sleeping; give
+		 * it a moment and retry with interrupts left disabled */
+		mdelay(20);
 	}
 
 	return 0;
