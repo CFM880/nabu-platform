@@ -36,11 +36,12 @@
 
 extern void nabu_suspend_mark(u8 v);
 
-#define NABU_SETTLE_MS	2000
+#define NABU_SETTLE_MS	2000	/* longer than this: a real wakeup */
+#define NABU_WINDOW_MS	1500	/* only retry inside this window */
 
 static int nabu_suspend_enter(suspend_state_t state)
 {
-	u64 settle, start;
+	u64 settle, window, start;
 	int i;
 
 	if (!psci_ops.cpu_suspend)
@@ -63,27 +64,36 @@ static int nabu_suspend_enter(suspend_state_t state)
 	settle = (u64)arch_timer_get_rate() * NABU_SETTLE_MS / 1000;
 
 	/*
-	 * The pending event is acknowledged exactly once, before the first
-	 * attempt: doing that between attempts would consume a real key
-	 * press (the handler swallows it while suspended) and the system
-	 * would sleep again with nothing left to wake it.
+	 * Acknowledge the pending event before every attempt - but only inside
+	 * the settle window.  The entry transient (the release of the key that
+	 * requested the suspend) latches a PMIC event that keeps the SPMI
+	 * summary asserted, and PSCI refuses to sleep while an interrupt is
+	 * pending.  Outside that window the interrupts are left alone, because
+	 * the pwrkey handler swallows events while suspended and a real wake
+	 * press would be lost (the tablet would sleep again with nothing left
+	 * to wake it).
 	 */
-	local_irq_enable();
-	cpu_relax();
-	local_irq_disable();
+	window = (u64)arch_timer_get_rate() * NABU_WINDOW_MS / 1000;
+	start = arch_timer_read_counter();
 
-	for (i = 0; i < 10; i++) {
-		start = arch_timer_read_counter();
+	for (i = 0; i < 40; i++) {
+		u64 t;
+
+		local_irq_enable();
+		cpu_relax();
+		local_irq_disable();
+
+		t = arch_timer_read_counter();
 		pr_info("nabu: entry attempt %d\n", i);
 		psci_cpu_suspend_enter(NABU_PSCI_SUSPEND_STATE);
 		pr_info("nabu: attempt %d returned after %llu us\n", i,
-			arch_timer_read_counter() - start);
-		if (arch_timer_read_counter() - start > settle)
-			break;
+			arch_timer_read_counter() - t);
 
-		/* a still asserted PMIC line keeps the PSCI from sleeping; give
-		 * it a moment and retry with interrupts left disabled */
-		mdelay(20);
+		if (arch_timer_read_counter() - t > settle)
+			break;			/* real wakeup */
+		if (arch_timer_read_counter() - start > window)
+			break;			/* transient never settles */
+		mdelay(10);
 	}
 
 	return 0;
