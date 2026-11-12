@@ -112,14 +112,15 @@
 		 * of the region then costs a record instead of invalidating it.
 		 */
 		/*
-		 * Keep the pstore buffer out of the region the bootloader loads
-		 * the UKI into: the initrd lands at ~0xb17xxxxx and the image
-		 * spans from ~0xb0000000, which overwrote the old buffer at
-		 * 0xb0000000 on every boot (hence the empty /sys/fs/pstore).
+		 * Keep the pstore buffer out of the boot image area (the initrd
+		 * lands at ~0xb17xxxxx, the image starts at ~0xb0000000) *and*
+		 * inside real DRAM: 0xb4000000 (where this was first moved to)
+		 * is a hole in the memory map - System RAM ends at 0xb3ffffff
+		 * and resumes at 0xb4400000 - so writes there went nowhere.
 		 */
-		ramoops@b4000000 {
+		ramoops@b4400000 {
 			compatible = "ramoops";
-			reg = <0x0 0xb4000000 0x0 0x400000>;
+			reg = <0x0 0xb4400000 0x0 0x400000>;
 			record-size = <0x20000>;
 			console-size = <0x100000>;
 			pmsg-size = <0x80000>;
