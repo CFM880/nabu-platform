@@ -815,19 +815,14 @@
 	firmware-name = "qcom/sm8150/xiaomi/nabu/adsp.mbn";
 };
 
-/*
- * nabu: this tablet is WiFi only (no cellular) and does not use the compute
- * DSP.  Keeping them loaded costs power: their firmware keeps its own RPMh
- * votes on the CX rail, so the AOSS sleep state can never collapse CX/DDR
- * (measured with /sys/kernel/debug/qcom_stats/{cxsd,ddr}: both stay 0 with
- * the DSPs running).  Leave them disabled.
- */
 &remoteproc_cdsp {
-	status = "disabled";
+	status = "okay";
+	firmware-name = "qcom/sm8150/xiaomi/nabu/cdsp.mbn";
 };
 
 &remoteproc_mpss {
-	status = "disabled";
+	status = "okay";
+	firmware-name = "qcom/sm8150/xiaomi/nabu/modem.mbn";
 };
 
 &sound {
