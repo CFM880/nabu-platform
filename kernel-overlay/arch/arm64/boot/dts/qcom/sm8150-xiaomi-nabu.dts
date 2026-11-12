@@ -104,31 +104,12 @@
 		};
 
 		/*
-		 * 4 MiB of DDR the kernel never maps, so the last oops/panic
-		 * survives the reset and shows up in /sys/fs/pstore.  20 records
-		 * of 128 KiB (a full arm64 oops dump is 15-20 KiB, so this holds
-		 * several), 1 MiB of console output and 512 KiB of pmsg for
-		 * userspace markers via /dev/pmsg0.  No ECC: an unexpected wipe
-		 * of the region then costs a record instead of invalidating it.
+		 * No ramoops node: this platform reinitialises DDR on every
+		 * reset, so a RAM buffer cannot hold a log across one (measured:
+		 * the ring was written normally and came back empty after a
+		 * reboot).  pstore/blk writes to the spare "oops" partition
+		 * instead - see KNOWN-ISSUES.md.
 		 */
-		/*
-		 * Put the buffer high in DDR, clear of everything the firmware
-		 * and the boot chain touch: the loader drops the image at
-		 * ~0xb0000000 and the initrd at ~0xb17xxxxx, 0xb4000000 is a
-		 * hole in the memory map (System RAM ends at 0xb3ffffff and
-		 * resumes at 0xb4400000), and 0xb4400000..0xb6cxxxxx is still
-		 * close to the boot chain.  0x370000000 sits in the large free
-		 * System RAM range that follows the kernel image, well below
-		 * the firmware block at 0x370e78000.
-		 */
-		ramoops@370000000 {
-			compatible = "ramoops";
-			reg = <0x3 0x70000000 0x0 0x400000>;
-			record-size = <0x20000>;
-			console-size = <0x100000>;
-			pmsg-size = <0x80000>;
-			no-map;
-		};
 
 		rmtfs_mem: memory@fe101000 {
 			compatible = "qcom,rmtfs-mem";
