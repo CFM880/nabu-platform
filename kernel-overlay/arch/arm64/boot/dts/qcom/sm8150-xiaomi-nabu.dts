@@ -111,9 +111,15 @@
 		 * userspace markers via /dev/pmsg0.  No ECC: an unexpected wipe
 		 * of the region then costs a record instead of invalidating it.
 		 */
-		ramoops@b0000000 {
+		/*
+		 * Keep the pstore buffer out of the region the bootloader loads
+		 * the UKI into: the initrd lands at ~0xb17xxxxx and the image
+		 * spans from ~0xb0000000, which overwrote the old buffer at
+		 * 0xb0000000 on every boot (hence the empty /sys/fs/pstore).
+		 */
+		ramoops@b4000000 {
 			compatible = "ramoops";
-			reg = <0x0 0xb0000000 0x0 0x400000>;
+			reg = <0x0 0xb4000000 0x0 0x400000>;
 			record-size = <0x20000>;
 			console-size = <0x100000>;
 			pmsg-size = <0x80000>;
