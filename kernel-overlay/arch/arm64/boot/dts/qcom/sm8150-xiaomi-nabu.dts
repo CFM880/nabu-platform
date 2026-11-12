@@ -112,15 +112,18 @@
 		 * of the region then costs a record instead of invalidating it.
 		 */
 		/*
-		 * Keep the pstore buffer out of the boot image area (the initrd
-		 * lands at ~0xb17xxxxx, the image starts at ~0xb0000000) *and*
-		 * inside real DRAM: 0xb4000000 (where this was first moved to)
-		 * is a hole in the memory map - System RAM ends at 0xb3ffffff
-		 * and resumes at 0xb4400000 - so writes there went nowhere.
+		 * Put the buffer high in DDR, clear of everything the firmware
+		 * and the boot chain touch: the loader drops the image at
+		 * ~0xb0000000 and the initrd at ~0xb17xxxxx, 0xb4000000 is a
+		 * hole in the memory map (System RAM ends at 0xb3ffffff and
+		 * resumes at 0xb4400000), and 0xb4400000..0xb6cxxxxx is still
+		 * close to the boot chain.  0x370000000 sits in the large free
+		 * System RAM range that follows the kernel image, well below
+		 * the firmware block at 0x370e78000.
 		 */
-		ramoops@b4400000 {
+		ramoops@370000000 {
 			compatible = "ramoops";
-			reg = <0x0 0xb4400000 0x0 0x400000>;
+			reg = <0x3 0x70000000 0x0 0x400000>;
 			record-size = <0x20000>;
 			console-size = <0x100000>;
 			pmsg-size = <0x80000>;
