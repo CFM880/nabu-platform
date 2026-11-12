@@ -8,14 +8,10 @@ requires    = []
 [provides]
 
 overlay = "kernel-overlay"
-rules   = ["config/99-nabu-serial-wakeup.rules", "config/99-nabu-pstore.rules"]
+rules   = ["config/99-nabu-serial-wakeup.rules"]
 
 # Device tree and platform only; the nabu DTS compiles from the kernel tree, so
 # this module ships no .ko.  The USB CDC-ACM serial console lives in nabu-serial.
 
 [install]
 "rules/99-nabu-serial-wakeup.rules" = "/etc/udev/rules.d/99-nabu-serial-wakeup.rules"
-# pstore/blk on the spare "oops" partition: the udev rule loads the module once
-# the partition exists, the modprobe options point it at the device.
-"config/99-nabu-pstore.rules" = "/etc/udev/rules.d/99-nabu-pstore.rules"
-"config/pstore-blk.conf" = "/etc/modprobe.d/pstore-blk.conf"

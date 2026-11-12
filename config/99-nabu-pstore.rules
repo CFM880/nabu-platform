@@ -1,7 +1,0 @@
-# Load pstore/blk once the spare "oops" partition shows up.
-#
-# The module cannot be built in: a built-in pstore_blk runs from
-# late_initcall(), i.e. before the UFS driver has published the partition
-# table, and then gives up for good ("failed to resolve ... : -2").  Loading it
-# from this rule guarantees the block device exists.
-ACTION=="add|change", SUBSYSTEM=="block", ENV{ID_PART_ENTRY_NAME}=="oops", RUN{program}+="/usr/sbin/modprobe pstore_blk"
