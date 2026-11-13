@@ -6,6 +6,7 @@
 #include <linux/err.h>
 #include <linux/init.h>
 #include <linux/interrupt.h>
+#include <linux/nabu-pdc.h>
 #include <linux/irq.h>
 #include <linux/irqchip.h>
 #include <linux/syscore_ops.h>
@@ -140,7 +141,7 @@ static const struct syscore_ops nabu_pdc_syscore_ops = {
 	.resume = nabu_pdc_syscore_resume,
 };
 
-static struct syscore nabu_pdc_syscore = {
+static struct syscore nabu_pdc_syscore __maybe_unused = {
 	.ops = &nabu_pdc_syscore_ops,
 };
 

@@ -24,6 +24,7 @@
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/of_address.h>
+#include <linux/nabu-pwrkey.h>
 #include <linux/platform_device.h>
 #include <linux/reboot.h>
 #include <linux/regmap.h>
@@ -169,9 +170,6 @@ static int pm8941_reboot_notify(struct notifier_block *nb,
 
 	return NOTIFY_DONE;
 }
-
-/* nabu: SDAM marker used by the suspend investigation, see nabu-suspend.c */
-void nabu_suspend_mark(u8 v);
 
 static irqreturn_t pm8941_pwrkey_irq(int irq, void *_data)
 {

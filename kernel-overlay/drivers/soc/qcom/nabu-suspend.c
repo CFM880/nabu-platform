@@ -27,15 +27,13 @@
 #include <linux/init.h>
 #include <linux/irqflags.h>
 #include <linux/kernel.h>
+#include <linux/nabu-pwrkey.h>
 #include <linux/psci.h>
 #include <linux/suspend.h>
 #include <linux/syscore_ops.h>
 #include <clocksource/arm_arch_timer.h>
 
 #define NABU_PSCI_SUSPEND_STATE	0x4100c244
-
-extern void nabu_suspend_mark(u8 v);
-extern void nabu_pwrkey_allow_wake(void);
 
 #define NABU_SETTLE_MS	2000	/* longer than this: a real wakeup */
 #define NABU_WINDOW_MS	1500	/* only retry inside this window */
