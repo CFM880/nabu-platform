@@ -9,14 +9,9 @@ requires    = []
 
 overlay = "kernel-overlay"
 rules   = ["config/99-nabu-serial-wakeup.rules"]
-systemd = ["system/nabu-dsp-suspend.service", "system/nabu-dsp-resume.service"]
 
 # Device tree and platform only; the nabu DTS compiles from the kernel tree, so
 # this module ships no .ko.  The USB CDC-ACM serial console lives in nabu-serial.
 
 [install]
 "rules/99-nabu-serial-wakeup.rules" = "/etc/udev/rules.d/99-nabu-serial-wakeup.rules"
-# Power the SLPI/CDSP/ADSP down for the duration of a system suspend.
-"system/nabu-dsp-sleep" = "/usr/local/libexec/nabu-dsp-sleep"
-"system/nabu-dsp-suspend.service" = "/etc/systemd/system/nabu-dsp-suspend.service"
-"system/nabu-dsp-resume.service" = "/etc/systemd/system/nabu-dsp-resume.service"
