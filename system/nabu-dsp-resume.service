@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: GPL-2.0-only
+[Unit]
+Description=Bring the SLPI/CDSP/ADSP back after resume
+DefaultDependencies=no
+After=suspend.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/nabu-dsp-sleep start
+
+[Install]
+WantedBy=suspend.target
