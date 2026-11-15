@@ -3,16 +3,11 @@
 #
 # Power down the remote processors that have no work while the AP sleeps.
 #
-# The SLPI (sensors) and CDSP (compute) keep running across system suspend on
-# their own power domains; nothing tells them the AP is asleep, so they sit
-# there burning current for the whole sleep, and the SLPI's FastRPC server
-# crashes ("sensor_process ... frpc_dsp") when it wakes up with a session that
-# timed out - which also aborts the suspend.
-#
-# The ADSP is left running on purpose: restarting it invalidates the AFE port
-# state the audio stack holds, and every playback after a resume then fails with
-# "AFE enable for port 0x4001 failed -22" until the DSP is restarted again.  Its
-# idle draw is the price of working audio across suspend.
+# The SLPI (sensors), CDSP (compute) and ADSP (audio) keep running across
+# system suspend on their own power domains; nothing tells them the AP is
+# asleep, so they sit there burning current for the whole sleep, and the SLPI's
+# FastRPC server crashes ("sensor_process ... frpc_dsp") when it wakes up with a
+# session that timed out - which also aborts the suspend.
 #
 # Stopping them before sleep and starting them again on resume takes them off
 # the rails entirely.  The modem is deliberately skipped: its runtime "stop"
@@ -32,7 +27,7 @@ find_rprocs() {
 
 case "${1:-}" in
 stop)
-	for name in cdsp slpi; do
+	for name in cdsp adsp slpi; do
 		r=$(find_rprocs "$name") || continue
 		[ "$(state "$r")" = running ] || continue
 		echo stop >"$r/state" 2>/dev/null &&
@@ -40,7 +35,7 @@ stop)
 	done
 	;;
 start)
-	for name in slpi cdsp; do
+	for name in slpi adsp cdsp; do
 		r=$(find_rprocs "$name") || continue
 		[ "$(state "$r")" = offline ] || continue
 		echo start >"$r/state" 2>/dev/null &&
