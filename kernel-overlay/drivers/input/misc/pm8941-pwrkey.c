@@ -96,6 +96,7 @@ struct pm8941_pwrkey {
 	bool irq_masked;
 	bool suspended;
 	bool swallow_release;
+	bool consumed_press;	/* the wake press was swallowed */
 	ktime_t drop_until;
 
 	unsigned int revision;
@@ -201,6 +202,8 @@ static irqreturn_t pm8941_pwrkey_irq(int irq, void *_data)
 	if (pwrkey->suspended ||
 	    (pwrkey->drop_until && ktime_before(ktime_get(), pwrkey->drop_until)) ||
 	    pwrkey->swallow_release) {
+		if (sts)
+			pwrkey->consumed_press = true;
 		pwrkey->swallow_release = sts;
 		pwrkey->last_status = sts;
 		return IRQ_HANDLED;
@@ -367,6 +370,30 @@ static int pm8941_pwrkey_suspend(struct device *dev)
 static int pm8941_pwrkey_resume(struct device *dev)
 {
 	struct pm8941_pwrkey *pwrkey = dev_get_drvdata(dev);
+	unsigned int sts = 0;
+	bool report_wake = pwrkey->consumed_press;
+
+	pwrkey->consumed_press = false;
+
+	/*
+	 * nabu: the press that woke the system is consumed above, so the
+	 * compositor never sees an input event and leaves the panel dark
+	 * until something else happens (measured: only plugging the charger
+	 * lit it).  Report KEY_WAKEUP instead of KEY_POWER: the compositor
+	 * treats any key as activity and shows the lock screen, while logind
+	 * and gsd only act on KEY_POWER and therefore cannot re-suspend the
+	 * tablet because of it.
+	 */
+	if (!report_wake && !regmap_read(pwrkey->regmap,
+					 pwrkey->baseaddr + PON_RT_STS, &sts))
+		report_wake = !!(sts & pwrkey->data->status_bit);
+
+	if (report_wake) {
+		input_report_key(pwrkey->input, KEY_WAKEUP, 1);
+		input_sync(pwrkey->input);
+		input_report_key(pwrkey->input, KEY_WAKEUP, 0);
+		input_sync(pwrkey->input);
+	}
 
 
 	if (pwrkey->suspend_mask_ms) {
