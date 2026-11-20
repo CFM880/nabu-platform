@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# The WCN3990 has no burned-in MAC (ath10k_snoc: "invalid MAC address; choosing
+# random"), so the kernel picks a new one every boot.  Set a stable, per-device
+# address derived from the SoC serial before NetworkManager activates the
+# interface (NetworkManager keeps it via wifi.cloned-mac-address=preserve).
+SUBSYSTEM=="net", ACTION=="add", KERNEL=="wlan*", RUN+="/usr/local/libexec/nabu-wifi-mac %k"

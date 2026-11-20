@@ -1,0 +1,53 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# nabu-wifi-mac - give the WCN3990 a stable, per-device MAC address.
+#
+# The WCN3990 on nabu has no burned-in MAC: ath10k_snoc logs "invalid MAC
+# address; choosing random" and picks a new address on every boot, so the
+# router hands out a fresh DHCP lease each time.  Baking one fixed address into
+# the image is not an option either - every tablet flashed from the same image
+# would collide on the same network.
+#
+# Derive the address from the SoC serial number instead: unique per device,
+# stable across reboots, and marked as a locally administered unicast address
+# (02:...), so it cannot collide with a real vendor OUI.
+#
+# Called from 99-nabu-wifi-mac.rules on the net device's "add" event, i.e.
+# before NetworkManager activates it; NetworkManager is told to preserve the
+# address (wifi.cloned-mac-address=preserve).
+#
+# Override with NABU_WIFI_MAC if a specific address is wanted.
+
+set -u
+
+dev=${1:-wlan0}
+
+if [ -n "${NABU_WIFI_MAC:-}" ]; then
+	mac=$NABU_WIFI_MAC
+else
+	id=$(cat /sys/devices/soc0/serial_number 2>/dev/null)
+	[ -n "$id" ] || id=$(cat /proc/device-tree/serial-number 2>/dev/null)
+	[ -n "$id" ] || id=$(cat "/sys/class/net/$dev/device/serial" 2>/dev/null)
+	[ -n "$id" ] || id=$(cat /etc/machine-id 2>/dev/null)
+	[ -n "$id" ] || exit 0
+
+	# 5 bytes of a hash of the serial; bit 1 of the first octet marks the
+	# address as locally administered, bit 0 stays clear (unicast).
+	h=$(printf '%s' "$id" | sha256sum | cut -c1-12)
+	first=$(( (0x$(printf '%s' "$h" | cut -c1-2) | 0x02) & 0xfe ))
+	mac=$(printf '%02x:%s:%s:%s:%s:%s' "$first" \
+		"$(printf '%s' "$h" | cut -c3-4)" \
+		"$(printf '%s' "$h" | cut -c5-6)" \
+		"$(printf '%s' "$h" | cut -c7-8)" \
+		"$(printf '%s' "$h" | cut -c9-10)" \
+		"$(printf '%s' "$h" | cut -c11-12)")
+fi
+
+# Keep it for inspection; the derivation is deterministic, so this is only a
+# convenience.
+install -d -m0755 /var/lib/nabu 2>/dev/null && echo "$mac" > /var/lib/nabu/wifi-mac
+
+# The device is still down when udev runs; a failure here (device already up)
+# is not fatal because the next boot will try again.
+ip link set dev "$dev" address "$mac" 2>/dev/null || exit 0
