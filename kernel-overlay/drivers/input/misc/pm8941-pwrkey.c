@@ -303,11 +303,30 @@ static void pm8941_pwrkey_unmask(struct timer_list *t)
 static int pm8941_pwrkey_suspend_noirq(struct device *dev)
 {
 	struct pm8941_pwrkey *pwrkey = dev_get_drvdata(dev);
+	unsigned int sts = 0;
 
 	if (pm_suspend_target_state != PM_SUSPEND_MEM || !device_may_wakeup(dev))
 		return 0;
 
+	/*
+	 * Re-arm the PON edge by masking and unmasking it again: the PON
+	 * interrupt is edge triggered, and a latch left over from the press
+	 * that requested the suspend can swallow the next edge, leaving the
+	 * SPMI summary deasserted and the power key unable to wake the SoC.
+	 * The SPMI bus is healthy in the noirq phase (the platform entry is
+	 * the phase that must not touch it).
+	 */
+	pm8941_pwrkey_mask(pwrkey, true);
 	pm8941_pwrkey_mask(pwrkey, false);
+
+	/*
+	 * Do not enter AOSS while the key is already down: that is the user
+	 * asking to stay awake, and the entry would consume the press as its
+	 * entry transient.  Abort the suspend instead.
+	 */
+	if (!regmap_read(pwrkey->regmap, pwrkey->baseaddr + PON_RT_STS, &sts) &&
+	    (sts & pwrkey->data->status_bit))
+		return -EBUSY;
 
 	return 0;
 }
@@ -330,7 +349,6 @@ static int pm8941_pwrkey_suspend(struct device *dev)
 	if (pm_suspend_target_state == PM_SUSPEND_MEM) {
 		pwrkey->suspended = true;
 		pwrkey->drop_until = 0;
-		enable_irq_wake(pwrkey->irq);
 
 		/*
 		 * nabu: arm the PON interrupt for the platform entry.  The
