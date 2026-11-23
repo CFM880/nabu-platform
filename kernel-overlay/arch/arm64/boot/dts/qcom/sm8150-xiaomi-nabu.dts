@@ -1052,16 +1052,6 @@
 &ufs_mem_hc {
 	status = "okay";
 
-	/*
-	 * Some Samsung UFS parts (KLUEG8UHDC/KLUDG4UHDC) cannot hold the link
-	 * at HS-G4 Rate B (~11.64 Gbps/lane) but work at Rate A (~9.98), which
-	 * is still far faster than capping the gear at HS-G3.  The property is
-	 * parsed by ufshcd_parse_gear_limits(); the vendor-specific corruption
-	 * quirks stay in ufs-qcom.c.
-	 */
-	limit-hs-gear = <4>;
-	limit-gear-rate = "rate-a";
-
 	vcc-supply = <&vreg_l10a_2p5>;
 	vcc-max-microamp = <750000>;
 	vccq-supply = <&vreg_l9a_1p2>;

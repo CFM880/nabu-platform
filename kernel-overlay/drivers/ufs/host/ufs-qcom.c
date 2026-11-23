@@ -1043,19 +1043,20 @@ static void ufs_qcom_override_pa_tx_hsg1_sync_len(struct ufs_hba *hba)
  */
 static void ufs_qcom_apply_nabu_samsung_quirks(struct ufs_hba *hba)
 {
+	struct ufs_qcom_host *host = ufshcd_get_variant(hba);
+
 	if (hba->dev_info.wmanufacturerid != UFS_VENDOR_SAMSUNG)
 		return;
 
-	/*
-	 * The link rate is handled in DT (limit-gear-rate = "rate-a"): those
-	 * parts cannot hold HS-G4 Rate B, and Rate A keeps HS-G4 instead of
-	 * falling back to HS-G3.  What is left here is the data-integrity
-	 * side: runtime link suspend returns silently corrupted data, and the
-	 * reference clock must stay up 200 us after hibern8 enter.
-	 */
+	if (host->host_params.hs_tx_gear > UFS_HS_G3)
+		host->host_params.hs_tx_gear = UFS_HS_G3;
+	if (host->host_params.hs_rx_gear > UFS_HS_G3)
+		host->host_params.hs_rx_gear = UFS_HS_G3;
+
 	hba->caps &= ~UFSHCD_CAP_RPM_AUTOSUSPEND;
 
-	dev_info(hba->dev, "Samsung UFS %s: runtime PM off\n",
+	dev_info(hba->dev,
+		 "Samsung UFS %s: capping at HS-G3, runtime PM off\n",
 		 hba->dev_info.model ? (const char *)hba->dev_info.model : "?");
 }
 
