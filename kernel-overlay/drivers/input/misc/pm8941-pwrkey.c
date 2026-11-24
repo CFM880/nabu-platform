@@ -178,6 +178,8 @@ static irqreturn_t pm8941_pwrkey_irq(int irq, void *_data)
 	unsigned int sts;
 	int err;
 
+	nabu_suspend_mark(0x05);
+
 	if (pwrkey->sw_debounce_time_us) {
 		if (ktime_before(ktime_get(), pwrkey->sw_debounce_end_time)) {
 			dev_dbg(pwrkey->dev,
@@ -319,6 +321,12 @@ static int pm8941_pwrkey_suspend_noirq(struct device *dev)
 	pm8941_pwrkey_mask(pwrkey, true);
 	pm8941_pwrkey_mask(pwrkey, false);
 
+	/* 0x40|INT_EN: what the PMIC really has enabled when we sleep */
+	if (!regmap_read(pwrkey->regmap, pwrkey->baseaddr + PON_INT_EN_SET,
+			 &sts))
+		nabu_suspend_mark(0x40 | (sts & 0x0f));
+	nabu_suspend_mark(0x06);
+
 	/*
 	 * Do not enter AOSS while the key is already down: that is the user
 	 * asking to stay awake, and the entry would consume the press as its
@@ -390,6 +398,8 @@ static int pm8941_pwrkey_resume(struct device *dev)
 	struct pm8941_pwrkey *pwrkey = dev_get_drvdata(dev);
 	unsigned int sts = 0;
 	bool report_wake = pwrkey->consumed_press;
+
+	nabu_suspend_mark(0x09);
 
 	pwrkey->consumed_press = false;
 
