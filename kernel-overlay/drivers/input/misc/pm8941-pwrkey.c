@@ -172,6 +172,29 @@ static int pm8941_reboot_notify(struct notifier_block *nb,
 	return NOTIFY_DONE;
 }
 
+static void pm8941_pwrkey_mask(struct pm8941_pwrkey *pwrkey, bool mask);
+
+/*
+ * nabu: stay in the oneshot thread until the key is released.  The PON
+ * interrupt is level triggered (so the SPMI summary is asserted for the
+ * whole press and the PDC sees the wake request); returning while the line
+ * is still high makes the core unmask the interrupt and it fires again.
+ */
+static void pm8941_pwrkey_wait_release(struct pm8941_pwrkey *pwrkey)
+{
+	unsigned int st = 0;
+	int i;
+
+	for (i = 0; i < 500; i++) {	/* up to 10 s of hold */
+		msleep(20);
+		if (regmap_read(pwrkey->regmap,
+				pwrkey->baseaddr + PON_RT_STS, &st))
+			break;
+		if (!(st & pwrkey->data->status_bit))
+			break;
+	}
+}
+
 static irqreturn_t pm8941_pwrkey_irq(int irq, void *_data)
 {
 	struct pm8941_pwrkey *pwrkey = _data;
@@ -204,28 +227,47 @@ static irqreturn_t pm8941_pwrkey_irq(int irq, void *_data)
 	if (pwrkey->suspended ||
 	    (pwrkey->drop_until && ktime_before(ktime_get(), pwrkey->drop_until)) ||
 	    pwrkey->swallow_release) {
-		if (sts)
+		if (sts) {
 			pwrkey->consumed_press = true;
-		pwrkey->swallow_release = sts;
-		pwrkey->last_status = sts;
+			pm8941_pwrkey_wait_release(pwrkey);
+		}
+		pwrkey->swallow_release = 0;
+		pwrkey->last_status = 0;
 		return IRQ_HANDLED;
 	}
 
-	if (pwrkey->sw_debounce_time_us && !sts)
-		pwrkey->sw_debounce_end_time = ktime_add_us(ktime_get(),
-						pwrkey->sw_debounce_time_us);
-
 	/*
-	 * Simulate a press event in case a release event occurred without a
-	 * corresponding press event.
+	 * nabu: the PON interrupt is level triggered now, so the SPMI summary
+	 * stays asserted while the key is held and the PDC really sees the
+	 * wake request.  The flip side: the oneshot thread must not return
+	 * while the line is high, otherwise the core unmasks it and it fires
+	 * again, storming KEY_POWER reports.  Report the press, stay in the
+	 * thread (the interrupt is masked meanwhile) until the key is
+	 * released, then report the release.
 	 */
-	if (!pwrkey->last_status && !sts) {
+	if (sts) {
+		pwrkey->last_status = 1;
 		input_report_key(pwrkey->input, pwrkey->code, 1);
 		input_sync(pwrkey->input);
-	}
-	pwrkey->last_status = sts;
 
-	input_report_key(pwrkey->input, pwrkey->code, sts);
+		pm8941_pwrkey_wait_release(pwrkey);
+
+		pwrkey->last_status = 0;
+		input_report_key(pwrkey->input, pwrkey->code, 0);
+		input_sync(pwrkey->input);
+
+		if (pwrkey->sw_debounce_time_us)
+			pwrkey->sw_debounce_end_time =
+				ktime_add_us(ktime_get(),
+					     pwrkey->sw_debounce_time_us);
+		return IRQ_HANDLED;
+	}
+
+	/* release without a press: report the pair, as before */
+	input_report_key(pwrkey->input, pwrkey->code, 1);
+	input_sync(pwrkey->input);
+	pwrkey->last_status = 0;
+	input_report_key(pwrkey->input, pwrkey->code, 0);
 	input_sync(pwrkey->input);
 
 	return IRQ_HANDLED;
@@ -744,6 +786,24 @@ static int pm8941_pwrkey_probe(struct platform_device *pdev)
 					  NULL, pm8941_pwrkey_irq,
 					  IRQF_ONESHOT,
 					  pwrkey->data->name, pwrkey);
+	if (!error) {
+		/*
+		 * nabu: trigger the PON interrupt on the level instead of the
+		 * edge.  The wake path is the SPMI summary -> PDC pin 1, and in
+		 * edge mode a press that the PMIC latches does not always
+		 * assert the summary, which leaves the SoC in AOSS.  A level
+		 * interrupt stays asserted until it is serviced, so the PDC
+		 * always sees it.
+		 */
+		error = irq_set_irq_type(pwrkey->irq, IRQ_TYPE_LEVEL_HIGH);
+		if (error)
+			dev_warn(&pdev->dev,
+				 "nabu: cannot make the key IRQ level triggered: %d\n",
+				 error);
+		else
+			dev_info(&pdev->dev,
+				 "nabu: key IRQ set to level triggered\n");
+	}
 	if (error) {
 		dev_err(&pdev->dev, "failed requesting IRQ: %d\n", error);
 		return error;
