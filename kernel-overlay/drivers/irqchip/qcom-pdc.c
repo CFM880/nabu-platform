@@ -3,6 +3,7 @@
  * Copyright (c) 2017-2019, The Linux Foundation. All rights reserved.
  */
 
+#include <linux/delay.h>
 #include <linux/err.h>
 #include <linux/init.h>
 #include <linux/interrupt.h>
@@ -356,6 +357,29 @@ static int qcom_pdc_gic_set_type(struct irq_data *d, unsigned int type)
 	old_pdc_type = pdc_reg_read(IRQ_i_CFG, d->hwirq);
 	pdc_type |= (old_pdc_type & ~IRQ_i_CFG_TYPE_MASK);
 	pdc_reg_write(IRQ_i_CFG, d->hwirq, pdc_type);
+
+	/*
+	 * nabu: the PDC type register does not always latch immediately; the
+	 * vendor driver polls here too.  If the write is lost the pin keeps
+	 * its previous type, and a level-triggered wake source such as the
+	 * SPMI summary on pin 1 then never fires.
+	 */
+	{
+		u32 cfg = 0;
+		int i;
+
+		for (i = 0; i < 200; i++) {
+			cfg = pdc_reg_read(IRQ_i_CFG, d->hwirq);
+			if ((cfg & IRQ_i_CFG_TYPE_MASK) ==
+			    (pdc_type & IRQ_i_CFG_TYPE_MASK))
+				break;
+			udelay(5);
+		}
+		if (i == 200)
+			pr_warn("nabu: PDC pin %lu type %#x did not stick (%#x)\n",
+				d->hwirq,
+				(u32)(pdc_type & IRQ_i_CFG_TYPE_MASK), cfg);
+	}
 
 	/* nabu: remember the programmed config, it does not survive the state */
 	if (d->hwirq < NABU_PDC_MAX_PIN) {
